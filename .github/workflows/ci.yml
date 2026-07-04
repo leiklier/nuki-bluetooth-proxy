@@ -24,7 +24,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.14"
-      - run: pip install mypy pynacl
+      - run: pip install mypy -r requirements_test.txt
       - run: mypy
 
   test:
@@ -34,5 +34,5 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.14"
-      - run: pip install pytest-homeassistant-custom-component pynacl
+      - run: pip install -r requirements_test.txt
       - run: pytest

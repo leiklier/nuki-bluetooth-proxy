@@ -1,0 +1,17 @@
+# Test/typecheck environment.
+# pytest-homeassistant-custom-component pins the matching homeassistant version;
+# the bluetooth stack below is required by HA's bluetooth/usb components but not
+# installed as part of the homeassistant package itself.
+pytest-homeassistant-custom-component
+PyNaCl>=1.5.0
+bleak
+bleak-retry-connector
+bluetooth-adapters
+bluetooth-auto-recovery
+bluetooth-data-tools
+dbus-fast
+habluetooth
+aiousbwatcher
+serialx
+aioesphomeapi
+ibeacon-ble
