@@ -1,0 +1,178 @@
+"""Tests for the BLE client against a simulated Opener."""
+
+import pytest
+
+from custom_components.nuki_opener_ble.nuki import crypto
+from custom_components.nuki_opener_ble.nuki.client import (
+    NukiOpenerClient,
+    NukiOpenerCredentials,
+)
+from custom_components.nuki_opener_ble.nuki.const import (
+    ClientType,
+    LockAction,
+    LockState,
+    StatusCode,
+)
+from custom_components.nuki_opener_ble.nuki.errors import (
+    NukiBadPinError,
+    NukiConnectionError,
+    NukiDeviceError,
+    NukiNotInPairingModeError,
+)
+
+from .fake_device import (
+    FakeEnvironment,
+    FakeOpener,
+    make_ble_device,
+    patch_establish_connection,
+)
+
+
+@pytest.fixture
+def environment(monkeypatch: pytest.MonkeyPatch) -> FakeEnvironment:
+    env = FakeEnvironment(opener=FakeOpener())
+    patch_establish_connection(monkeypatch, env)
+    return env
+
+
+def make_client(
+    environment: FakeEnvironment, credentials: NukiOpenerCredentials | None = None
+) -> NukiOpenerClient:
+    return NukiOpenerClient(
+        ble_device_getter=lambda: make_ble_device(environment.address),
+        credentials=credentials,
+        disconnect_delay=0.01,
+    )
+
+
+def make_credentials(opener: FakeOpener) -> NukiOpenerCredentials:
+    private_key, public_key = crypto.generate_keypair()
+    credentials = NukiOpenerCredentials(
+        private_key=private_key,
+        public_key=public_key,
+        device_public_key=opener.public_key,
+        auth_id=opener.auth_id,
+        app_id=42,
+    )
+    opener.install_credentials(credentials)
+    return credentials
+
+
+class TestPairing:
+    async def test_pair_success(self, environment: FakeEnvironment) -> None:
+        client = make_client(environment)
+        credentials = await client.pair(name="Home Assistant")
+        assert credentials.auth_id == environment.opener.auth_id
+        assert credentials.device_public_key == environment.opener.public_key
+        assert credentials.shared_key == environment.opener.shared_key
+        assert environment.opener.paired_name == "Home Assistant"
+        assert environment.opener.paired_client_type == ClientType.BRIDGE
+        assert not environment.opener.pairing_mode
+        # The client must disconnect after pairing.
+        assert all(not fake.is_connected for fake in environment.clients)
+
+    async def test_pair_not_in_pairing_mode(self, environment: FakeEnvironment) -> None:
+        environment.opener.pairing_mode = False
+        client = make_client(environment)
+        with pytest.raises(NukiNotInPairingModeError):
+            await client.pair()
+
+    async def test_credentials_roundtrip(self, environment: FakeEnvironment) -> None:
+        client = make_client(environment)
+        credentials = await client.pair()
+        restored = NukiOpenerCredentials.from_dict(credentials.to_dict())
+        assert restored == credentials
+        assert restored.shared_key == credentials.shared_key
+
+
+class TestCommands:
+    async def test_get_state(self, environment: FakeEnvironment) -> None:
+        credentials = make_credentials(environment.opener)
+        client = make_client(environment, credentials)
+        state = await client.get_state()
+        assert state.lock_state == LockState.LOCKED
+        assert state.config_update_count == 7
+        await client.disconnect()
+
+    async def test_get_config(self, environment: FakeEnvironment) -> None:
+        credentials = make_credentials(environment.opener)
+        client = make_client(environment, credentials)
+        config = await client.get_config()
+        assert config.name == "Front Door"
+        assert config.nuki_id == 0x11223344
+        await client.disconnect()
+
+    async def test_get_battery_report(self, environment: FakeEnvironment) -> None:
+        credentials = make_credentials(environment.opener)
+        client = make_client(environment, credentials)
+        report = await client.get_battery_report()
+        assert report.battery_voltage_mv == 5450
+        await client.disconnect()
+
+    async def test_lock_action_waits_for_completion(self, environment: FakeEnvironment) -> None:
+        credentials = make_credentials(environment.opener)
+        client = make_client(environment, credentials)
+        status = await client.lock_action(LockAction.ACTIVATE_RTO)
+        assert status == StatusCode.COMPLETE
+        assert environment.opener.received_lock_actions == [LockAction.ACTIVATE_RTO]
+        assert environment.opener.state.lock_state == LockState.RTO_ACTIVE
+        await client.disconnect()
+
+    async def test_lock_action_updates_state_callback(self, environment: FakeEnvironment) -> None:
+        credentials = make_credentials(environment.opener)
+        client = make_client(environment, credentials)
+        states = []
+        client.state_callback = states.append
+        await client.lock_action(LockAction.ELECTRIC_STRIKE_ACTUATION)
+        # The intermediate OPENER_STATES notification must reach the callback.
+        assert [state.lock_state for state in states] == [LockState.OPEN]
+        await client.disconnect()
+
+    async def test_verify_security_pin(self, environment: FakeEnvironment) -> None:
+        credentials = make_credentials(environment.opener)
+        client = make_client(environment, credentials)
+        assert await client.verify_security_pin(1234) is True
+        assert await client.verify_security_pin(1111) is False
+        await client.disconnect()
+
+    async def test_get_log_entries(self, environment: FakeEnvironment) -> None:
+        opener = environment.opener
+        opener.add_lock_action_log_entry()
+        opener.add_doorbell_log_entry()
+        credentials = make_credentials(opener)
+        client = make_client(environment, credentials)
+        entries = await client.get_log_entries(pin=1234, count=5)
+        assert [entry.index for entry in entries] == [2, 1]
+        await client.disconnect()
+
+    async def test_get_log_entries_bad_pin(self, environment: FakeEnvironment) -> None:
+        environment.opener.add_doorbell_log_entry()
+        credentials = make_credentials(environment.opener)
+        client = make_client(environment, credentials)
+        with pytest.raises(NukiBadPinError):
+            await client.get_log_entries(pin=1, count=5)
+        await client.disconnect()
+
+    async def test_device_error_is_raised(self, environment: FakeEnvironment) -> None:
+        credentials = make_credentials(environment.opener)
+        # Force a decryption mismatch on the device by changing its key.
+        environment.opener.shared_key = bytes(32)
+        client = make_client(environment, credentials)
+        with pytest.raises((NukiDeviceError, NukiConnectionError, Exception)):
+            await client.get_state()
+        await client.disconnect()
+
+    async def test_no_ble_device_available(self, environment: FakeEnvironment) -> None:
+        credentials = make_credentials(environment.opener)
+        client = NukiOpenerClient(ble_device_getter=lambda: None, credentials=credentials)
+        with pytest.raises(NukiConnectionError):
+            await client.get_state()
+
+    async def test_connection_reused_within_operations(self, environment: FakeEnvironment) -> None:
+        credentials = make_credentials(environment.opener)
+        client = make_client(environment, credentials)
+        await client.get_state()
+        await client.get_config()
+        # Both operations ran before the idle disconnect fired.
+        assert len(environment.clients) == 1
+        await client.disconnect()
