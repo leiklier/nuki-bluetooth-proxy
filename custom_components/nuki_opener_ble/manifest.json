@@ -1,0 +1,31 @@
+{
+  "domain": "nuki_opener_ble",
+  "name": "Nuki Opener BLE",
+  "bluetooth": [
+    {
+      "manufacturer_id": 76,
+      "manufacturer_data_start": [
+        2, 21, 169, 42, 226, 0, 85, 1, 17, 228, 145, 108, 8, 0, 32, 12, 154, 102
+      ]
+    },
+    {
+      "service_uuid": "a92ae100-5501-11e4-916c-0800200c9a66"
+    },
+    {
+      "service_uuid": "a92ae000-5501-11e4-916c-0800200c9a66"
+    },
+    {
+      "service_uuid": "a92ee000-5501-11e4-916c-0800200c9a66"
+    }
+  ],
+  "codeowners": [],
+  "config_flow": true,
+  "dependencies": ["bluetooth_adapters"],
+  "documentation": "https://github.com/leik/nuki-bluetooth-proxy",
+  "integration_type": "device",
+  "iot_class": "local_polling",
+  "issue_tracker": "https://github.com/leik/nuki-bluetooth-proxy/issues",
+  "loggers": ["custom_components.nuki_opener_ble"],
+  "requirements": ["PyNaCl>=1.5.0"],
+  "version": "0.1.0"
+}

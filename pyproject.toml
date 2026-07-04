@@ -1,0 +1,52 @@
+[project]
+name = "nuki-opener-ble"
+version = "0.1.0"
+description = "Home Assistant custom integration for the Nuki Opener over Bluetooth proxies"
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.13"
+
+[dependency-groups]
+dev = [
+  "pytest-homeassistant-custom-component",
+  "pynacl>=1.5.0",
+  "ruff",
+  "mypy",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = "-q"
+
+[tool.ruff]
+target-version = "py313"
+line-length = 100
+
+[tool.ruff.lint]
+select = [
+  "E",     # pycodestyle errors
+  "W",     # pycodestyle warnings
+  "F",     # pyflakes
+  "I",     # isort
+  "UP",    # pyupgrade
+  "B",     # bugbear
+  "SIM",   # simplify
+  "C4",    # comprehensions
+  "RUF",   # ruff-specific
+  "ASYNC", # async checks
+  "T20",   # no print
+]
+ignore = [
+  "E501", # line length is handled by the formatter
+]
+
+[tool.ruff.lint.isort]
+force-sort-within-sections = true
+combine-as-imports = true
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+warn_unreachable = true
+files = ["custom_components/nuki_opener_ble/nuki"]

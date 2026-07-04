@@ -1,0 +1,5 @@
+{
+  "name": "Nuki Opener BLE",
+  "homeassistant": "2025.2.0",
+  "zip_release": false
+}
