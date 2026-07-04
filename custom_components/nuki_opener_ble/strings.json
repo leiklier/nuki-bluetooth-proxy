@@ -1,0 +1,120 @@
+{
+  "config": {
+    "flow_title": "{name} ({address})",
+    "step": {
+      "user": {
+        "description": "Select the Nuki Opener to set up.",
+        "data": {
+          "address": "Device"
+        }
+      },
+      "choose_method": {
+        "title": "Connect to {name}",
+        "description": "How do you want to authorize Home Assistant on {name} ({address})?\n\nPairing registers Home Assistant as a new (bridge-type) authorization. Choose manual entry only if you already have credentials, e.g. exported from nuki_hub or pyNukiBT.",
+        "menu_options": {
+          "pair": "Pair a new authorization (recommended)",
+          "manual": "Enter existing credentials"
+        }
+      },
+      "pair": {
+        "title": "Pair with {name}",
+        "description": "Put the Opener into pairing mode first: press and hold its button for 5 seconds until the LED ring lights up. Then press Submit.\n\nNote: pairing must be enabled in the Nuki app (Settings → Features & configuration → Button & LED)."
+      },
+      "manual": {
+        "title": "Enter existing credentials",
+        "description": "All keys are hex encoded. The public key is derived from the private key automatically.",
+        "data": {
+          "private_key": "Private key (64 hex characters)",
+          "device_public_key": "Opener public key (64 hex characters)",
+          "auth_id": "Authorization ID (8 hex characters)",
+          "app_id": "App ID (decimal number)"
+        }
+      }
+    },
+    "error": {
+      "not_in_pairing_mode": "The Opener is not in pairing mode. Press and hold its button for 5 seconds, then try again.",
+      "cannot_connect": "Could not connect to the Opener. Check that a Bluetooth proxy or adapter is in range.",
+      "pairing_failed": "Pairing failed unexpectedly. Check the logs for details.",
+      "invalid_credentials": "The credentials are malformed. Check key lengths and encoding."
+    },
+    "abort": {
+      "already_configured": "This Nuki Opener is already configured.",
+      "not_supported": "This device is not a Nuki Opener.",
+      "no_devices_found": "No Nuki Opener found. Make sure it is powered and a Bluetooth proxy or adapter is in range."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "description": "The security PIN (as set in the Nuki app) enables reading the activity log, which improves doorbell ring detection. Leave empty to disable.",
+        "data": {
+          "security_pin": "Security PIN"
+        }
+      }
+    },
+    "error": {
+      "invalid_pin": "The Opener rejected this PIN.",
+      "cannot_connect": "Could not connect to the Opener to verify the PIN."
+    }
+  },
+  "entity": {
+    "binary_sensor": {
+      "battery_critical": {
+        "name": "Battery critical"
+      },
+      "door": {
+        "name": "Door"
+      }
+    },
+    "button": {
+      "open_door": {
+        "name": "Open door"
+      }
+    },
+    "event": {
+      "doorbell": {
+        "name": "Doorbell"
+      }
+    },
+    "sensor": {
+      "lock_state": {
+        "name": "State",
+        "state": {
+          "uncalibrated": "Uncalibrated",
+          "locked": "Idle",
+          "rto_active": "Ring-to-open active",
+          "open": "Open",
+          "opening": "Opening",
+          "undefined": "Unknown"
+        }
+      },
+      "nuki_state": {
+        "name": "Mode",
+        "state": {
+          "uninitialized": "Uninitialized",
+          "pairing_mode": "Pairing mode",
+          "door_mode": "Door mode",
+          "continuous_mode": "Continuous mode",
+          "maintenance_mode": "Maintenance mode"
+        }
+      },
+      "last_ring": {
+        "name": "Last ring"
+      },
+      "battery_voltage": {
+        "name": "Battery voltage"
+      },
+      "rssi": {
+        "name": "Bluetooth signal"
+      }
+    },
+    "switch": {
+      "ring_to_open": {
+        "name": "Ring-to-open"
+      },
+      "continuous_mode": {
+        "name": "Continuous mode"
+      }
+    }
+  }
+}

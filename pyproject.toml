@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Home Assistant custom integration for the Nuki Opener over Bluetooth proxies"
 readme = "README.md"
 license = { file = "LICENSE" }
-requires-python = ">=3.13"
+requires-python = ">=3.14"
 
 [dependency-groups]
 dev = [
@@ -21,7 +21,7 @@ asyncio_mode = "auto"
 addopts = "-q"
 
 [tool.ruff]
-target-version = "py313"
+target-version = "py314"
 line-length = 100
 
 [tool.ruff.lint]
@@ -47,7 +47,7 @@ force-sort-within-sections = true
 combine-as-imports = true
 
 [tool.mypy]
-python_version = "3.13"
+python_version = "3.14"
 strict = true
 warn_unreachable = true
 files = ["custom_components/nuki_opener_ble/nuki"]

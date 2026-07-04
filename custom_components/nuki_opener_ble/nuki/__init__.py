@@ -3,6 +3,7 @@
 from .advertisement import NukiAdvertisement, parse_manufacturer_data
 from .client import NukiOpenerClient, NukiOpenerCredentials
 from .const import (
+    INITIALIZATION_SERVICE_UUIDS,
     OPENER_SERVICE_UUID,
     PAIRING_GDIO_UUID,
     PAIRING_SERVICE_UUID,
@@ -35,6 +36,7 @@ from .errors import (
 from .messages import BatteryReport, LogEntry, OpenerConfig, OpenerState
 
 __all__ = [
+    "INITIALIZATION_SERVICE_UUIDS",
     "OPENER_SERVICE_UUID",
     "PAIRING_GDIO_UUID",
     "PAIRING_SERVICE_UUID",
