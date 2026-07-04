@@ -18,13 +18,13 @@
       "service_uuid": "a92ee000-5501-11e4-916c-0800200c9a66"
     }
   ],
-  "codeowners": [],
+  "codeowners": ["@leiklier"],
   "config_flow": true,
   "dependencies": ["bluetooth_adapters"],
-  "documentation": "https://github.com/leik/nuki-bluetooth-proxy",
+  "documentation": "https://github.com/leiklier/nuki-bluetooth-proxy",
   "integration_type": "device",
   "iot_class": "local_polling",
-  "issue_tracker": "https://github.com/leik/nuki-bluetooth-proxy/issues",
+  "issue_tracker": "https://github.com/leiklier/nuki-bluetooth-proxy/issues",
   "loggers": ["custom_components.nuki_opener_ble"],
   "requirements": ["PyNaCl>=1.5.0"],
   "version": "0.1.0"
