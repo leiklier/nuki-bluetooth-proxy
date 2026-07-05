@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Generator
-import sys
 from unittest.mock import PropertyMock, patch
 
 from homeassistant.const import CONF_ADDRESS
@@ -33,15 +32,16 @@ def auto_enable_custom_integrations(
 
 
 @pytest.fixture
-def expected_lingering_timers() -> bool:
-    """Downgrade lingering-timer failures to warnings on macOS.
+def expected_lingering_timers(request: pytest.FixtureRequest) -> bool:
+    """Downgrade lingering-timer failures to warnings for HA-level tests.
 
-    The enable_bluetooth fixture's mocked scanner does not stop cleanly on
-    Darwin, leaving its (cython, unpatchable) device-expiry timer behind even
-    for an empty test. Linux CI keeps the strict check. (sys.platform, because
-    the test harness patches platform.system to "Linux" globally.)
+    The enable_bluetooth fixture's mocked scanner never stops cleanly (the
+    scanner classes are cython and unpatchable), leaving its device-expiry
+    timer behind even for an empty test. HA core waives this check for its
+    own component tests the same way (see the pytest plugin's path-based
+    default). The pure protocol tests under tests/nuki keep the strict check.
     """
-    return sys.platform == "darwin"
+    return request.node.path.parent.name != "nuki"
 
 
 @pytest.fixture
