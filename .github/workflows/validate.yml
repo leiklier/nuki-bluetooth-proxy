@@ -21,7 +21,3 @@ jobs:
       - uses: hacs/action@main
         with:
           category: integration
-          # Passing the brands check requires adding the domain to
-          # https://github.com/home-assistant/brands (needed before a
-          # HACS default-store submission, not for a custom repository).
-          ignore: brands

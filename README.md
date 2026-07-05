@@ -122,4 +122,6 @@ hardware.
 ## Disclaimer
 
 This is a third-party project, not affiliated with or endorsed by Nuki Home Solutions
-GmbH. Use at your own risk.
+GmbH. The Nuki name and logo (shown as the integration's icon, sourced from the
+[home-assistant/brands](https://github.com/home-assistant/brands) repository) are
+trademarks of Nuki Home Solutions GmbH. Use at your own risk.
