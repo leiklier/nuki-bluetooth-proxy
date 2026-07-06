@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from bleak_retry_connector import close_stale_connections_by_address
 from homeassistant.components import bluetooth
 from homeassistant.components.bluetooth import (
     BluetoothServiceInfoBleak,
@@ -189,6 +190,7 @@ class NukiOpenerConfigFlow(ConfigFlow, domain=DOMAIN):
 
         if _ble_device_getter() is None:
             raise NukiConnectionError("device not present")
+        await close_stale_connections_by_address(address)
         client = NukiOpenerClient(_ble_device_getter)
         return await client.pair(name=PAIRING_CLIENT_NAME)
 

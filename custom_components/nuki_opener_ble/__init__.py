@@ -10,6 +10,7 @@ import logging
 import time
 
 from bleak.backends.device import BLEDevice
+from bleak_retry_connector import close_stale_connections_by_address
 from homeassistant.components import bluetooth
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_ADDRESS, EVENT_HOMEASSISTANT_STOP, Platform
@@ -47,6 +48,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: NukiOpenerConfigEntry) -
             f"Nuki Opener {address} is not present; make sure a Bluetooth proxy or "
             "adapter within range is connected to Home Assistant"
         )
+
+    # The Opener accepts a single BLE connection and stops advertising while
+    # connected; make sure no stale local-adapter connection blocks it.
+    await close_stale_connections_by_address(address)
 
     client = NukiOpenerClient(_ble_device_getter, credentials)
     device = NukiOpenerDevice(client, security_pin=entry.options.get(CONF_SECURITY_PIN))
