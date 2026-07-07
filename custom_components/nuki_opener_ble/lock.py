@@ -1,8 +1,15 @@
 """Lock platform for the Nuki Opener.
 
-The lock maps the opener's ring-to-open feature: unlocking activates RTO
-(the door buzzes open on the next ring), locking deactivates it, and
-``lock.open`` fires the electric strike immediately.
+The lock supports two behaviors:
+
+- **ring-to-open**: unlocking arms RTO (the door buzzes open on the next
+  ring), locking disarms it, and ``lock.open`` fires the electric strike.
+- **buzzer**: unlocking fires the electric strike directly and the entity
+  returns to locked once the opener relatches. Useful when the intercom
+  wiring does not support ring-to-open, and for HomeKit (which only knows
+  lock/unlock): unlock buzzes the door open.
+
+The default resolves automatically from the opener's reported capabilities.
 """
 
 from __future__ import annotations
@@ -14,9 +21,23 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import NukiOpenerConfigEntry
+from .const import (
+    CONF_LOCK_BEHAVIOR,
+    LOCK_BEHAVIOR_AUTO,
+    LOCK_BEHAVIOR_BUZZER,
+)
 from .coordinator import NukiOpenerCoordinator
 from .entity import NukiOpenerEntity
-from .nuki import LockAction, LockState
+from .nuki import Capability, LockAction, LockState
+
+
+def resolve_buzzer_mode(entry: NukiOpenerConfigEntry) -> bool:
+    """Whether the lock entity should act as a buzzer."""
+    behavior = entry.options.get(CONF_LOCK_BEHAVIOR, LOCK_BEHAVIOR_AUTO)
+    if behavior == LOCK_BEHAVIOR_AUTO:
+        config = entry.runtime_data.device.config
+        return config is not None and config.capabilities == Capability.DOOR_OPENING_ONLY
+    return behavior == LOCK_BEHAVIOR_BUZZER
 
 
 async def async_setup_entry(
@@ -25,18 +46,19 @@ async def async_setup_entry(
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the lock entity."""
-    async_add_entities([NukiOpenerLock(entry.runtime_data)])
+    async_add_entities([NukiOpenerLock(entry.runtime_data, resolve_buzzer_mode(entry))])
 
 
 class NukiOpenerLock(NukiOpenerEntity, LockEntity):
-    """Ring-to-open control of the Nuki Opener."""
+    """Ring-to-open or buzzer control of the Nuki Opener."""
 
     # This is the main entity of the device: use the device name directly.
     _attr_name = None
     _attr_supported_features = LockEntityFeature.OPEN
 
-    def __init__(self, coordinator: NukiOpenerCoordinator) -> None:
+    def __init__(self, coordinator: NukiOpenerCoordinator, buzzer_mode: bool) -> None:
         super().__init__(coordinator, "lock")
+        self._buzzer_mode = buzzer_mode
 
     @property
     def is_locked(self) -> bool | None:
@@ -65,11 +87,20 @@ class NukiOpenerLock(NukiOpenerEntity, LockEntity):
         return state.lock_state == LockState.UNCALIBRATED
 
     async def async_unlock(self, **kwargs: Any) -> None:
-        """Activate ring-to-open."""
-        await self._async_execute_lock_action(LockAction.ACTIVATE_RTO)
+        """Buzz the door open (buzzer mode) or activate ring-to-open."""
+        if self._buzzer_mode:
+            await self._async_execute_lock_action(LockAction.ELECTRIC_STRIKE_ACTUATION)
+        else:
+            await self._async_execute_lock_action(LockAction.ACTIVATE_RTO)
 
     async def async_lock(self, **kwargs: Any) -> None:
-        """Deactivate ring-to-open."""
+        """Deactivate ring-to-open; a no-op in buzzer mode.
+
+        In buzzer mode the opener relatches by itself after the strike
+        duration, so there is nothing to lock.
+        """
+        if self._buzzer_mode:
+            return
         await self._async_execute_lock_action(LockAction.DEACTIVATE_RTO)
 
     async def async_open(self, **kwargs: Any) -> None:

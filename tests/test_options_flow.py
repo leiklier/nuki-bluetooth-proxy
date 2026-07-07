@@ -4,7 +4,12 @@ from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.nuki_opener_ble.const import CONF_SECURITY_PIN
+from custom_components.nuki_opener_ble.const import (
+    CONF_LOCK_BEHAVIOR,
+    CONF_SECURITY_PIN,
+    LOCK_BEHAVIOR_AUTO,
+    LOCK_BEHAVIOR_BUZZER,
+)
 
 from .conftest import setup_entry
 from .nuki.fake_device import FakeEnvironment
@@ -25,7 +30,10 @@ async def test_set_valid_pin(
         result["flow_id"], {CONF_SECURITY_PIN: "1234"}
     )
     assert result["type"] is FlowResultType.CREATE_ENTRY
-    assert config_entry.options == {CONF_SECURITY_PIN: 1234}
+    assert config_entry.options == {
+        CONF_SECURITY_PIN: 1234,
+        CONF_LOCK_BEHAVIOR: LOCK_BEHAVIOR_AUTO,
+    }
     await hass.async_block_till_done()
 
 
@@ -77,5 +85,23 @@ async def test_clearing_pin(
         result["flow_id"], {CONF_SECURITY_PIN: ""}
     )
     assert result["type"] is FlowResultType.CREATE_ENTRY
-    assert config_entry.options == {}
+    assert CONF_SECURITY_PIN not in config_entry.options
+    await hass.async_block_till_done()
+
+
+async def test_set_lock_behavior(
+    hass: HomeAssistant,
+    enable_bluetooth: None,
+    environment: FakeEnvironment,
+    config_entry: MockConfigEntry,
+) -> None:
+    """The lock behavior option is stored without requiring a PIN."""
+    await setup_entry(hass, config_entry)
+    result = await hass.config_entries.options.async_init(config_entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {CONF_SECURITY_PIN: "", CONF_LOCK_BEHAVIOR: LOCK_BEHAVIOR_BUZZER},
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert config_entry.options == {CONF_LOCK_BEHAVIOR: LOCK_BEHAVIOR_BUZZER}
     await hass.async_block_till_done()

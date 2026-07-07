@@ -73,6 +73,7 @@ class FakeOpener:
         self.received_lock_actions: list[LockAction] = []
         self.log_entries: list[FakeLogEntry] = []
         self.config_name = "Front Door"
+        self.capabilities = 0x01  # door opening and ring-to-open
         self.firmware_version = (1, 8, 0)
         self.hardware_revision = (5, 2)
         self.nuki_id = 0x11223344
@@ -123,7 +124,7 @@ class FakeOpener:
             struct.pack("<I", self.nuki_id)
             + messages.encode_name(self.config_name)
             + struct.pack("<ff", 59.91, 10.75)
-            + bytes([0x01, 0x00, 0x01, 0x01])  # capabilities, pairing, button, led
+            + bytes([self.capabilities, 0x00, 0x01, 0x01])  # capabilities, pairing, button, led
             + struct.pack("<HBBBBB", 2026, 7, 4, 12, 0, 0)
             + struct.pack("<h", 120)
             + bytes([0x01, 0x00, 0x07, 0x07, 0x07, 0x02, 0x00, 0x00])

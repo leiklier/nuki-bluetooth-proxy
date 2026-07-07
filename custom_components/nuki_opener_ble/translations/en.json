@@ -48,13 +48,26 @@
       "init": {
         "description": "The security PIN (as set in the Nuki app) enables reading the activity log, which improves doorbell ring detection. Leave empty to disable.",
         "data": {
-          "security_pin": "Security PIN"
+          "security_pin": "Security PIN",
+          "lock_behavior": "Lock entity behavior"
+        },
+        "data_description": {
+          "lock_behavior": "What unlocking the lock entity does. Buzzer mode fires the electric strike directly and relocks automatically — useful without ring-to-open wiring and for HomeKit."
         }
       }
     },
     "error": {
       "invalid_pin": "The Opener rejected this PIN.",
       "cannot_connect": "Could not connect to the Opener to verify the PIN."
+    }
+  },
+  "selector": {
+    "lock_behavior": {
+      "options": {
+        "auto": "Automatic (buzzer if ring-to-open is unavailable)",
+        "ring_to_open": "Ring-to-open (unlock arms RTO)",
+        "buzzer": "Buzzer (unlock fires the electric strike)"
+      }
     }
   },
   "entity": {

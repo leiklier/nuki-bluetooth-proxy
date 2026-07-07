@@ -13,7 +13,7 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from . import NukiOpenerConfigEntry
 from .coordinator import NukiOpenerCoordinator
 from .entity import NukiOpenerEntity
-from .nuki import LockAction, OpenerState
+from .nuki import Capability, LockAction, OpenerState
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -49,8 +49,13 @@ async def async_setup_entry(
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the switch entities."""
+    coordinator = entry.runtime_data
+    config = coordinator.device.config
+    rto_unavailable = config is not None and config.capabilities == Capability.DOOR_OPENING_ONLY
     async_add_entities(
-        NukiOpenerSwitch(entry.runtime_data, description) for description in SWITCHES
+        NukiOpenerSwitch(coordinator, description)
+        for description in SWITCHES
+        if not (description.key == "ring_to_open" and rto_unavailable)
     )
 
 

@@ -20,9 +20,22 @@ from homeassistant.config_entries import (
 from homeassistant.const import CONF_ADDRESS
 from homeassistant.core import callback
 from homeassistant.helpers.device_registry import format_mac
+from homeassistant.helpers.selector import (
+    SelectSelector,
+    SelectSelectorConfig,
+    SelectSelectorMode,
+)
 import voluptuous as vol
 
-from .const import CONF_CREDENTIALS, CONF_SECURITY_PIN, DEFAULT_NAME, DOMAIN
+from .const import (
+    CONF_CREDENTIALS,
+    CONF_LOCK_BEHAVIOR,
+    CONF_SECURITY_PIN,
+    DEFAULT_NAME,
+    DOMAIN,
+    LOCK_BEHAVIOR_AUTO,
+    LOCK_BEHAVIORS,
+)
 from .nuki import (
     INITIALIZATION_SERVICE_UUIDS,
     PAIRING_SERVICE_UUID,
@@ -206,30 +219,43 @@ class NukiOpenerConfigFlow(ConfigFlow, domain=DOMAIN):
 
 
 class NukiOpenerOptionsFlow(OptionsFlow):
-    """Options flow: configure the security PIN."""
+    """Options flow: security PIN and lock entity behavior."""
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         """Manage the options."""
         errors: dict[str, str] = {}
         if user_input is not None:
+            options: dict[str, Any] = {
+                CONF_LOCK_BEHAVIOR: user_input[CONF_LOCK_BEHAVIOR],
+            }
             pin_text = (user_input.get(CONF_SECURITY_PIN) or "").strip()
             if not pin_text:
-                return self.async_create_entry(data={})
+                return self.async_create_entry(data=options)
             if not pin_text.isdigit() or not 0 <= int(pin_text) <= 0xFFFF:
                 errors[CONF_SECURITY_PIN] = "invalid_pin"
             else:
                 pin = int(pin_text)
                 error = await self._async_verify_pin(pin)
                 if error is None:
-                    return self.async_create_entry(data={CONF_SECURITY_PIN: pin})
+                    return self.async_create_entry(data={**options, CONF_SECURITY_PIN: pin})
                 errors["base" if error == "cannot_connect" else CONF_SECURITY_PIN] = error
-        current = self.config_entry.options.get(CONF_SECURITY_PIN)
+        current_pin = self.config_entry.options.get(CONF_SECURITY_PIN)
+        current_behavior = self.config_entry.options.get(CONF_LOCK_BEHAVIOR, LOCK_BEHAVIOR_AUTO)
         schema = vol.Schema(
             {
                 vol.Optional(
                     CONF_SECURITY_PIN,
-                    description={"suggested_value": "" if current is None else str(current)},
-                ): str
+                    description={
+                        "suggested_value": "" if current_pin is None else str(current_pin)
+                    },
+                ): str,
+                vol.Required(CONF_LOCK_BEHAVIOR, default=current_behavior): SelectSelector(
+                    SelectSelectorConfig(
+                        options=LOCK_BEHAVIORS,
+                        mode=SelectSelectorMode.DROPDOWN,
+                        translation_key=CONF_LOCK_BEHAVIOR,
+                    )
+                ),
             }
         )
         return self.async_show_form(step_id="init", data_schema=schema, errors=errors)

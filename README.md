@@ -14,10 +14,14 @@ vectors published in it. Prior art that helped along the way:
 
 ## Features
 
-- **Lock entity** — the main control:
-  - `lock.unlock` activates **ring-to-open** (the door buzzes open on the next ring)
-  - `lock.lock` deactivates ring-to-open
-  - `lock.open` fires the **electric strike** and opens the door immediately
+- **Lock entity** — the main control, with two behaviors (integration options):
+  - *Ring-to-open* (default with RTO wiring): `lock.unlock` activates **ring-to-open**
+    (the door buzzes open on the next ring), `lock.lock` deactivates it, and
+    `lock.open` fires the **electric strike** to open the door immediately
+  - *Buzzer* (default when the intercom wiring has no ring-to-open): `lock.unlock`
+    fires the electric strike directly and the lock relocks by itself — ideal for
+    exposing the door buzzer to **Apple HomeKit**, which only understands
+    lock/unlock
 - **Switches** for ring-to-open and **continuous mode**
 - **Open door button** for dashboards
 - **Doorbell event entity** — fires when someone rings, so you can trigger automations
@@ -78,6 +82,18 @@ If you already have credentials (for example exported from nuki_hub or pyNukiBT)
 
 - **Security PIN** — the PIN configured in the Nuki app. Optional; enables log-based ring
   detection. The PIN is verified against the device when you save it.
+- **Lock entity behavior** — *Automatic* (default) uses buzzer mode when the Opener
+  reports that ring-to-open is not available for your intercom wiring, and ring-to-open
+  mode otherwise. Force either mode if you prefer — e.g. buzzer mode for HomeKit even
+  when RTO is available. In buzzer mode `lock.lock` is a no-op (the strike relatches by
+  itself), and when RTO is impossible the ring-to-open switch entity is not created.
+
+### Apple HomeKit
+
+Expose the lock entity through the [HomeKit Bridge](https://www.home-assistant.io/integrations/homekit/)
+integration. With buzzer behavior, tapping **unlock** in the Home app buzzes the door
+open and the tile returns to *locked* automatically once the strike releases — the
+Opener behaves like a HomeKit door buzzer.
 
 ## How it works
 

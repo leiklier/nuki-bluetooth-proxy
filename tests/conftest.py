@@ -79,7 +79,8 @@ def config_entry(environment: FakeEnvironment) -> MockConfigEntry:
 
 async def setup_entry(hass: HomeAssistant, config_entry: MockConfigEntry) -> MockConfigEntry:
     """Add the opener advertisement and set up the config entry."""
-    config_entry.add_to_hass(hass)
+    if hass.config_entries.async_get_entry(config_entry.entry_id) is None:
+        config_entry.add_to_hass(hass)
     inject_opener_advertisement(hass)
     await hass.config_entries.async_setup(config_entry.entry_id)
     await hass.async_block_till_done()
