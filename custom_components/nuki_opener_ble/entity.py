@@ -48,7 +48,7 @@ class NukiOpenerEntity(PassiveBluetoothCoordinatorEntity[NukiOpenerCoordinator])
         ):
             name_suffix = user.name
         try:
-            await self.device.client.lock_action(action, name_suffix=name_suffix)
+            await self.device.execute_lock_action(action, name_suffix=name_suffix)
         except NukiError as err:
             raise HomeAssistantError(f"Nuki Opener action {action.name} failed: {err}") from err
         finally:

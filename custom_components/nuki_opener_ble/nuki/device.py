@@ -13,11 +13,12 @@ import dataclasses
 from dataclasses import dataclass
 from datetime import UTC, datetime
 import logging
+import time
 from typing import Any
 
 from .advertisement import NukiAdvertisement, parse_manufacturer_data
 from .client import NukiOpenerClient
-from .const import LockState, LogEntryType, NukiState, Trigger
+from .const import LockAction, LockState, LogEntryType, NukiState, StatusCode, Trigger
 from .errors import NukiBadPinError, NukiError
 from .messages import AdvancedConfig, BatteryReport, LogEntry, OpenerConfig, OpenerState
 
@@ -26,6 +27,14 @@ _LOGGER = logging.getLogger(__name__)
 # Re-read the battery report at most this often (seconds).
 BATTERY_REPORT_INTERVAL = 3600.0
 _OPEN_STATES = (LockState.OPEN, LockState.OPENING)
+
+# Ignore ring detections for this long after firing the electric strike
+# ourselves: on some intercom wirings (e.g. Urmet 1+1 in privacy mode) the
+# strike shorts the very lines the opener's doorbell detection listens on,
+# producing a false ring. Used as fallback/margin around the configured
+# strike delay + duration.
+RING_SUPPRESSION_FALLBACK = 15.0
+RING_SUPPRESSION_MARGIN = 10.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,6 +66,7 @@ class NukiOpenerDevice:
         self._adv_signaled_change = False
         self._last_battery_monotonic: float | None = None
         self._last_log_index: int | None = None
+        self._suppress_rings_until = 0.0
         self._ring_callbacks: list[Callable[[RingEvent], None]] = []
 
         client.state_callback = self._on_unsolicited_state
@@ -107,6 +117,32 @@ class NukiOpenerDevice:
         if self.security_pin is not None:
             await self._detect_ring_from_log()
 
+    async def execute_lock_action(
+        self, action: LockAction, name_suffix: str | None = None
+    ) -> StatusCode:
+        """Execute a lock action, tracking self-inflicted ring windows.
+
+        Firing the electric strike can trigger the opener's own doorbell
+        detection on wirings where the strike shorts the doorbell lines, so
+        ring detections are suppressed while the strike may be active.
+        """
+        if action == LockAction.ELECTRIC_STRIKE_ACTUATION:
+            self._extend_ring_suppression()
+        status = await self.client.lock_action(action, name_suffix=name_suffix)
+        if action == LockAction.ELECTRIC_STRIKE_ACTUATION:
+            # Restart the window from completion; the false ring may only be
+            # detected (and logged) while the strike is releasing.
+            self._extend_ring_suppression()
+        return status
+
+    def _extend_ring_suppression(self) -> None:
+        window = RING_SUPPRESSION_FALLBACK
+        if (config := self.advanced_config) is not None:
+            window = (
+                config.electric_strike_delay_ms + config.electric_strike_duration_ms
+            ) / 1000 + RING_SUPPRESSION_MARGIN
+        self._suppress_rings_until = time.monotonic() + window
+
     async def change_advanced_config(self, **changes: Any) -> None:
         """Change advanced-config fields (requires the security PIN).
 
@@ -143,6 +179,9 @@ class NukiOpenerDevice:
         return _unsubscribe
 
     def _fire_ring(self, event: RingEvent) -> None:
+        if time.monotonic() < self._suppress_rings_until:
+            _LOGGER.debug("Ignoring ring detected while our own electric strike may be active")
+            return
         # Debounce: transition- and log-based detection may see the same ring.
         if (
             self.last_ring is not None

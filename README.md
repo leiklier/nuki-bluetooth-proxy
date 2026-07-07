@@ -46,6 +46,13 @@ enter your Nuki **security PIN** in the integration options, rings are additiona
 confirmed from the Opener's activity log, which is more reliable and reports whether the
 ring was suppressed (Ring Suppression).
 
+On some intercom wirings (e.g. Urmet 1+1 in privacy mode) firing the electric strike
+shorts the same lines the doorbell detection listens on, so the Opener falsely detects a
+ring whenever the door is buzzed. The integration therefore ignores ring detections for
+the duration of its own strike actuations (derived from the configured strike delay and
+duration, plus a margin). Buzzes initiated outside Home Assistant (Nuki app, fob) cannot
+be distinguished and may still produce a false ring event on such wirings.
+
 ## Requirements
 
 - A Nuki Opener, set up and calibrated with the Nuki app
@@ -102,6 +109,11 @@ Expose the lock entity through the [HomeKit Bridge](https://www.home-assistant.i
 integration. With buzzer behavior, tapping **unlock** in the Home app buzzes the door
 open and the tile returns to *locked* automatically once the strike releases — the
 Opener behaves like a HomeKit door buzzer.
+
+The doorbell comes along for free: HomeKit Bridge automatically links a doorbell event
+entity on the same device to the lock accessory, so the Opener appears in the Home app
+as a lock **with a doorbell**. Rings surface as HomeKit doorbell events — notifications,
+automations, and HomePod chimes work as with any HomeKit doorbell.
 
 ## How it works
 

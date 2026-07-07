@@ -180,3 +180,69 @@ class TestRingDetection:
         await device.update()
         assert len(rings) == 1
         await device.client.disconnect()
+
+
+class TestRingSuppressionAfterStrike:
+    async def test_own_strike_suppresses_false_ring(self, environment: FakeEnvironment) -> None:
+        """A ring detected right after our electric strike is ignored."""
+        opener = environment.opener
+        opener.add_lock_action_log_entry()
+        device = make_device(environment, security_pin=1234)
+        rings: list[RingEvent] = []
+        device.subscribe_ring(rings.append)
+        await device.update()
+
+        await device.execute_lock_action(LockAction.ELECTRIC_STRIKE_ACTUATION)
+        # The strike shorts the doorbell lines (e.g. Urmet 1+1 privacy mode):
+        # the opener logs a doorbell recognition and flags a state change.
+        opener.state.lock_state = LockState.LOCKED
+        opener.add_doorbell_log_entry()
+        device.handle_advertisement(opener_beacon(state_changed=True))
+        await device.update()
+        assert rings == []
+        await device.client.disconnect()
+
+    async def test_ring_fires_after_suppression_window(self, environment: FakeEnvironment) -> None:
+        """Once the window has passed, rings are reported again."""
+        device = make_device(environment)
+        rings: list[RingEvent] = []
+        device.subscribe_ring(rings.append)
+        await device.update()
+
+        await device.execute_lock_action(LockAction.ELECTRIC_STRIKE_ACTUATION)
+        assert device._suppress_rings_until > 0
+        device._suppress_rings_until = 0.0  # simulate window expiry
+        opener = environment.opener
+        opener.state.lock_state = LockState.LOCKED
+        await device.update()  # observe the relatch (OPEN -> LOCKED, no ring)
+        assert rings == []
+        device.handle_advertisement(opener_beacon(state_changed=True))
+        await device.update()
+        assert len(rings) == 1
+        await device.client.disconnect()
+
+    async def test_rto_action_does_not_suppress(self, environment: FakeEnvironment) -> None:
+        """Only the electric strike arms the suppression window."""
+        device = make_device(environment)
+        await device.update()
+        await device.execute_lock_action(LockAction.ACTIVATE_RTO)
+        assert device._suppress_rings_until == 0.0
+        await device.client.disconnect()
+
+    async def test_window_uses_configured_strike_timing(self, environment: FakeEnvironment) -> None:
+        """The window derives from the configured strike delay + duration."""
+        import dataclasses
+        import time
+
+        opener = environment.opener
+        opener.advanced_config = dataclasses.replace(
+            opener.advanced_config,
+            electric_strike_delay_ms=5000,
+            electric_strike_duration_ms=10000,
+        )
+        device = make_device(environment)
+        await device.update()
+        await device.execute_lock_action(LockAction.ELECTRIC_STRIKE_ACTUATION)
+        remaining = device._suppress_rings_until - time.monotonic()
+        assert 20 <= remaining <= 26  # 5s + 10s + 10s margin
+        await device.client.disconnect()
