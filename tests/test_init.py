@@ -30,6 +30,22 @@ async def test_setup_and_unload(
     assert all(not client.is_connected for client in environment.clients)
 
 
+async def test_remove_entry_sweeps_leftover_connections(
+    hass: HomeAssistant,
+    enable_bluetooth: None,
+    environment: FakeEnvironment,
+    config_entry: MockConfigEntry,
+) -> None:
+    """Removing the entry reconnects once to release any stale proxy link."""
+    await setup_entry(hass, config_entry)
+    assert await hass.config_entries.async_remove(config_entry.entry_id)
+    await hass.async_block_till_done()
+    # The sweep opened its own connection and closed it again; nothing may
+    # remain connected after removal.
+    assert len(environment.clients) >= 2
+    assert all(not client.is_connected for client in environment.clients)
+
+
 async def test_setup_retries_when_device_absent(
     hass: HomeAssistant,
     enable_bluetooth: None,

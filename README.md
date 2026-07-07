@@ -115,9 +115,12 @@ specification's test vectors.
   Opener accepts only *one* BLE connection at a time and stops advertising while
   connected, so Home Assistant and the Nuki app compete for it. Before configuring the
   Opener in the Nuki app: disable this integration's entry (*Settings → Devices &
-  services → Nuki Opener BLE → Disable*), and reload or power-cycle the Bluetooth proxy
-  nearest the Opener to drop any lingering connection. Re-enable the entry afterwards.
-  If you re-set-up or factory-reset the Opener in the app, Home Assistant's stored
+  services → Nuki Opener BLE → Disable*); disabling and uninstalling both disconnect
+  cleanly, and uninstalling additionally sweeps for leftover connections. If the app
+  still cannot connect, **reload the ESPHome integration entry** for the proxy nearest
+  the Opener — ESPHome proxies release all their BLE connections when their API session
+  restarts, so no power cycle is needed. Re-enable the entry afterwards. If you
+  re-set-up or factory-reset the Opener in the app, Home Assistant's stored
   authorization is invalidated — delete the entry and pair again.
 - **The opener is not discovered** — check that a proxy/adapter is in range
   (*Settings → Devices & services → Bluetooth* lists reachable devices), and that the

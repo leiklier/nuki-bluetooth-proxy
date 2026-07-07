@@ -386,7 +386,7 @@ class FakeEnvironment:
 
 
 def patch_establish_connection(monkeypatch: Any, environment: FakeEnvironment) -> None:
-    """Route nuki.client.establish_connection to the fake environment."""
+    """Route all establish_connection call sites to the fake environment."""
 
     async def _establish_connection(
         client_class: Any, device: Any, name: str, **kwargs: Any
@@ -395,6 +395,11 @@ def patch_establish_connection(monkeypatch: Any, environment: FakeEnvironment) -
 
     monkeypatch.setattr(
         "custom_components.nuki_opener_ble.nuki.client.establish_connection",
+        _establish_connection,
+    )
+    # The integration's removal sweep imports it separately.
+    monkeypatch.setattr(
+        "custom_components.nuki_opener_ble.establish_connection",
         _establish_connection,
     )
 

@@ -6,11 +6,16 @@ Bluetooth proxies — no Nuki Bridge required.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 
 from bleak.backends.device import BLEDevice
-from bleak_retry_connector import close_stale_connections_by_address
+from bleak_retry_connector import (
+    BleakClientWithServiceCache,
+    close_stale_connections_by_address,
+    establish_connection,
+)
 from homeassistant.components import bluetooth
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_ADDRESS, EVENT_HOMEASSISTANT_STOP, Platform
@@ -33,6 +38,9 @@ PLATFORMS: list[Platform] = [
 ]
 
 type NukiOpenerConfigEntry = ConfigEntry[NukiOpenerCoordinator]
+
+# Upper bound for the best-effort connection sweep when the entry is removed.
+REMOVAL_SWEEP_TIMEOUT = 10.0
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: NukiOpenerConfigEntry) -> bool:
@@ -90,3 +98,30 @@ async def async_unload_entry(hass: HomeAssistant, entry: NukiOpenerConfigEntry) 
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     await entry.runtime_data.device.client.disconnect()
     return unload_ok
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: NukiOpenerConfigEntry) -> None:
+    """Release any BLE connection a proxy may still hold to the opener.
+
+    The entry's own client is disconnected during unload. This best-effort
+    sweep additionally reclaims a stale connection left behind by an
+    interrupted attempt: a Bluetooth proxy that still holds such a link
+    blocks the Nuki app until the link is dropped. Briefly connecting makes
+    the proxy hand over the existing link; disconnecting then releases it.
+    """
+    address: str = entry.data[CONF_ADDRESS]
+    await close_stale_connections_by_address(address)
+    ble_device = bluetooth.async_ble_device_from_address(hass, address, connectable=True)
+    if ble_device is None:
+        return
+    try:
+        async with asyncio.timeout(REMOVAL_SWEEP_TIMEOUT):
+            client = await establish_connection(
+                BleakClientWithServiceCache,
+                ble_device,
+                f"Nuki Opener {address}",
+                max_attempts=1,
+            )
+            await client.disconnect()
+    except Exception:  # best effort only; the device may simply be gone
+        _LOGGER.debug("Could not sweep leftover BLE connections for %s", address, exc_info=True)
