@@ -1,4 +1,9 @@
-"""Switch platform for the Nuki Opener (ring-to-open and continuous mode)."""
+"""Switch platform for the Nuki Opener.
+
+Action switches (ring-to-open, continuous mode) drive lock actions.
+Settings switches (doorbell suppression) write the advanced configuration
+and require the security PIN, so they are only created when it is set.
+"""
 
 from __future__ import annotations
 
@@ -7,22 +12,31 @@ from dataclasses import dataclass
 from typing import Any
 
 from homeassistant.components.switch import SwitchEntity, SwitchEntityDescription
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import NukiOpenerConfigEntry
 from .coordinator import NukiOpenerCoordinator
 from .entity import NukiOpenerEntity
-from .nuki import Capability, LockAction, OpenerState
+from .nuki import AdvancedConfig, Capability, LockAction, NukiError, OpenerState
 
 
 @dataclass(frozen=True, kw_only=True)
 class NukiOpenerSwitchDescription(SwitchEntityDescription):
-    """Describes a Nuki Opener switch."""
+    """Describes a switch backed by a pair of opener lock actions."""
 
     is_on_fn: Callable[[OpenerState], bool]
     turn_on_action: LockAction
     turn_off_action: LockAction
+
+
+@dataclass(frozen=True, kw_only=True)
+class NukiOpenerSuppressionDescription(SwitchEntityDescription):
+    """Describes a doorbell-suppression bit of the advanced configuration."""
+
+    bit: int
 
 
 SWITCHES: tuple[NukiOpenerSwitchDescription, ...] = (
@@ -42,6 +56,28 @@ SWITCHES: tuple[NukiOpenerSwitchDescription, ...] = (
     ),
 )
 
+# Bitmask layout per the Opener BLE spec: bit0 CM, bit1 RTO, bit2 ring.
+SUPPRESSION_SWITCHES: tuple[NukiOpenerSuppressionDescription, ...] = (
+    NukiOpenerSuppressionDescription(
+        key="suppress_ring",
+        translation_key="suppress_ring",
+        entity_category=EntityCategory.CONFIG,
+        bit=0x04,
+    ),
+    NukiOpenerSuppressionDescription(
+        key="suppress_rto",
+        translation_key="suppress_rto",
+        entity_category=EntityCategory.CONFIG,
+        bit=0x02,
+    ),
+    NukiOpenerSuppressionDescription(
+        key="suppress_cm",
+        translation_key="suppress_cm",
+        entity_category=EntityCategory.CONFIG,
+        bit=0x01,
+    ),
+)
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -52,11 +88,17 @@ async def async_setup_entry(
     coordinator = entry.runtime_data
     config = coordinator.device.config
     rto_unavailable = config is not None and config.capabilities == Capability.DOOR_OPENING_ONLY
-    async_add_entities(
+    entities: list[NukiOpenerEntity] = [
         NukiOpenerSwitch(coordinator, description)
         for description in SWITCHES
         if not (description.key == "ring_to_open" and rto_unavailable)
-    )
+    ]
+    if coordinator.device.security_pin is not None:
+        entities.extend(
+            NukiOpenerSuppressionSwitch(coordinator, description)
+            for description in SUPPRESSION_SWITCHES
+        )
+    async_add_entities(entities)
 
 
 class NukiOpenerSwitch(NukiOpenerEntity, SwitchEntity):
@@ -83,3 +125,47 @@ class NukiOpenerSwitch(NukiOpenerEntity, SwitchEntity):
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         await self._async_execute_lock_action(self.entity_description.turn_off_action)
+
+
+class NukiOpenerSuppressionSwitch(NukiOpenerEntity, SwitchEntity):
+    """A doorbell-suppression flag in the opener's advanced configuration."""
+
+    entity_description: NukiOpenerSuppressionDescription
+
+    def __init__(
+        self,
+        coordinator: NukiOpenerCoordinator,
+        description: NukiOpenerSuppressionDescription,
+    ) -> None:
+        super().__init__(coordinator, description.key)
+        self.entity_description = description
+
+    @property
+    def _advanced_config(self) -> AdvancedConfig | None:
+        return self.device.advanced_config
+
+    @property
+    def is_on(self) -> bool | None:
+        if (config := self._advanced_config) is None:
+            return None
+        return bool(config.doorbell_suppression & self.entity_description.bit)
+
+    async def _async_set_bit(self, enabled: bool) -> None:
+        if (config := self._advanced_config) is None:
+            raise HomeAssistantError("The opener's configuration has not been read yet")
+        bit = self.entity_description.bit
+        mask = (
+            config.doorbell_suppression | bit if enabled else (config.doorbell_suppression & ~bit)
+        )
+        try:
+            await self.device.change_advanced_config(doorbell_suppression=mask)
+        except NukiError as err:
+            raise HomeAssistantError(f"Could not change doorbell suppression: {err}") from err
+        finally:
+            self.coordinator.async_update_listeners()
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        await self._async_set_bit(True)
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        await self._async_set_bit(False)

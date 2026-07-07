@@ -9,15 +9,17 @@ device's activity log.
 from __future__ import annotations
 
 from collections.abc import Callable
+import dataclasses
 from dataclasses import dataclass
 from datetime import UTC, datetime
 import logging
+from typing import Any
 
 from .advertisement import NukiAdvertisement, parse_manufacturer_data
 from .client import NukiOpenerClient
 from .const import LockState, LogEntryType, NukiState, Trigger
 from .errors import NukiBadPinError, NukiError
-from .messages import BatteryReport, LogEntry, OpenerConfig, OpenerState
+from .messages import AdvancedConfig, BatteryReport, LogEntry, OpenerConfig, OpenerState
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -47,6 +49,7 @@ class NukiOpenerDevice:
         self.security_pin = security_pin
         self.state: OpenerState | None = None
         self.config: OpenerConfig | None = None
+        self.advanced_config: AdvancedConfig | None = None
         self.battery: BatteryReport | None = None
         self.last_ring: RingEvent | None = None
 
@@ -92,6 +95,7 @@ class NukiOpenerDevice:
             and previous.config_update_count != state.config_update_count
         ):
             self.config = await self.client.get_config()
+            self.advanced_config = await self.client.get_advanced_config()
 
         if self._should_refresh_battery(now_monotonic):
             try:
@@ -102,6 +106,19 @@ class NukiOpenerDevice:
 
         if self.security_pin is not None:
             await self._detect_ring_from_log()
+
+    async def change_advanced_config(self, **changes: Any) -> None:
+        """Change advanced-config fields (requires the security PIN).
+
+        Read-modify-write against a freshly fetched configuration so that
+        concurrent changes made in the Nuki app are never overwritten.
+        """
+        if self.security_pin is None:
+            raise NukiBadPinError("a security PIN is required to change settings")
+        current = await self.client.get_advanced_config()
+        updated = dataclasses.replace(current, **changes)
+        await self.client.set_advanced_config(updated, self.security_pin)
+        self.advanced_config = updated
 
     def _should_refresh_battery(self, now_monotonic: float | None) -> bool:
         if self.battery is None:

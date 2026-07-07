@@ -49,6 +49,7 @@ from .errors import (
     NukiResponseTimeoutError,
 )
 from .messages import (
+    AdvancedConfig,
     AuthorizationId,
     BatteryReport,
     LogEntry,
@@ -366,6 +367,39 @@ class NukiOpenerClient:
                     expected=Command.CONFIG,
                 )
                 return OpenerConfig.parse(payload)
+            finally:
+                self._schedule_disconnect()
+
+    async def get_advanced_config(self) -> AdvancedConfig:
+        """Read the opener's advanced configuration."""
+        async with self._operation_lock:
+            try:
+                challenge = await self._request_challenge()
+                payload, _ = await self._request_encrypted(
+                    Command.REQUEST_ADVANCED_CONFIG,
+                    messages.build_request_advanced_config(challenge),
+                    expected=Command.ADVANCED_CONFIG,
+                )
+                return AdvancedConfig.parse(payload)
+            finally:
+                self._schedule_disconnect()
+
+    async def set_advanced_config(self, config: AdvancedConfig, pin: int) -> None:
+        """Write the advanced configuration (requires the security PIN)."""
+        async with self._operation_lock:
+            try:
+                challenge = await self._request_challenge()
+                payload, _ = await self._request_encrypted(
+                    Command.SET_ADVANCED_CONFIG,
+                    messages.build_set_advanced_config(config, challenge, pin),
+                    expected=Command.STATUS,
+                )
+                if messages.parse_status(payload) != StatusCode.COMPLETE:
+                    raise NukiProtocolError("device did not confirm the configuration")
+            except NukiDeviceError as err:
+                if err.error_code == ErrorCode.K_BAD_PIN:
+                    raise NukiBadPinError("security PIN rejected") from err
+                raise
             finally:
                 self._schedule_disconnect()
 

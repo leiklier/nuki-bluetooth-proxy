@@ -28,6 +28,11 @@ vectors published in it. Prior art that helped along the way:
   (notifications, announcements, conditional auto-open, …)
 - **Sensors**: opener state, mode, last ring timestamp, battery voltage and Bluetooth
   signal (diagnostic), battery-critical and door-sensor binary sensors
+- **Settings** (require the security PIN): **sound volume** and **doorbell
+  suppression** switches (ring / during ring-to-open / during continuous mode) — e.g.
+  automate a silent doorbell at night. Installation-level settings (intercom type,
+  strike wiring, calibration) intentionally stay in the Nuki app, which guides the
+  required re-training.
 - **Diagnostics download** with secrets redacted
 
 State updates are near-instant without draining the Opener's batteries: the integration
@@ -81,7 +86,10 @@ If you already have credentials (for example exported from nuki_hub or pyNukiBT)
 ### Options
 
 - **Security PIN** — the PIN configured in the Nuki app. Optional; enables log-based ring
-  detection. The PIN is verified against the device when you save it.
+  detection and the settings entities (sound volume, doorbell suppression). The PIN is
+  verified against the device when you save it. Settings writes are read-modify-write
+  against a freshly fetched configuration, so changes made in the Nuki app are never
+  overwritten.
 - **Lock entity behavior** — *Automatic* (default) uses buzzer mode when the Opener
   reports that ring-to-open is not available for your intercom wiring, and ring-to-open
   mode otherwise. Force either mode if you prefer — e.g. buzzer mode for HomeKit even

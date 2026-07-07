@@ -89,6 +89,11 @@
         "name": "Doorbell"
       }
     },
+    "number": {
+      "sound_volume": {
+        "name": "Sound volume"
+      }
+    },
     "sensor": {
       "lock_state": {
         "name": "State",
@@ -127,6 +132,15 @@
       },
       "continuous_mode": {
         "name": "Continuous mode"
+      },
+      "suppress_ring": {
+        "name": "Suppress ring sound"
+      },
+      "suppress_rto": {
+        "name": "Suppress ring during ring-to-open"
+      },
+      "suppress_cm": {
+        "name": "Suppress ring during continuous mode"
       }
     }
   }

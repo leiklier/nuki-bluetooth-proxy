@@ -168,6 +168,104 @@ class OpenerConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class AdvancedConfig:
+    """Payload of Advanced Config (0x0037).
+
+    The same field layout (plus challenge nonce and PIN) is written back by
+    Set Advanced Config (0x0035), so writes are read-modify-write:
+    ``dataclasses.replace`` the fields to change and serialize.
+    """
+
+    intercom_id: int
+    bus_mode_switch: int
+    short_circuit_duration_ms: int
+    electric_strike_delay_ms: int
+    random_electric_strike_delay: bool
+    electric_strike_duration_ms: int
+    disable_rto_after_ring: bool
+    rto_timeout_minutes: int
+    doorbell_suppression: int  # bitmask: bit0 CM, bit1 RTO, bit2 ring
+    doorbell_suppression_duration_ms: int
+    sound_ring: int
+    sound_open: int
+    sound_rto: int
+    sound_cm: int
+    sound_confirmation: int
+    sound_level: int
+    single_button_press_action: int
+    double_button_press_action: int
+    battery_type: int
+    automatic_battery_type_detection: bool
+
+    _STRUCT = "<HBHHBHBBBHBBBBBBBBBB"
+    _SIZE = 25
+
+    @property
+    def suppress_ring(self) -> bool:
+        return bool(self.doorbell_suppression & 0x04)
+
+    @property
+    def suppress_rto(self) -> bool:
+        return bool(self.doorbell_suppression & 0x02)
+
+    @property
+    def suppress_cm(self) -> bool:
+        return bool(self.doorbell_suppression & 0x01)
+
+    @classmethod
+    def parse(cls, payload: bytes) -> AdvancedConfig:
+        _require(payload, cls._SIZE, "Advanced Config")
+        values = struct.unpack_from(cls._STRUCT, payload)
+        return cls(
+            intercom_id=values[0],
+            bus_mode_switch=values[1],
+            short_circuit_duration_ms=values[2],
+            electric_strike_delay_ms=values[3],
+            random_electric_strike_delay=bool(values[4]),
+            electric_strike_duration_ms=values[5],
+            disable_rto_after_ring=bool(values[6]),
+            rto_timeout_minutes=values[7],
+            doorbell_suppression=values[8],
+            doorbell_suppression_duration_ms=values[9],
+            sound_ring=values[10],
+            sound_open=values[11],
+            sound_rto=values[12],
+            sound_cm=values[13],
+            sound_confirmation=values[14],
+            sound_level=values[15],
+            single_button_press_action=values[16],
+            double_button_press_action=values[17],
+            battery_type=values[18],
+            automatic_battery_type_detection=bool(values[19]),
+        )
+
+    def serialize(self) -> bytes:
+        return struct.pack(
+            self._STRUCT,
+            self.intercom_id,
+            self.bus_mode_switch,
+            self.short_circuit_duration_ms,
+            self.electric_strike_delay_ms,
+            int(self.random_electric_strike_delay),
+            self.electric_strike_duration_ms,
+            int(self.disable_rto_after_ring),
+            self.rto_timeout_minutes,
+            self.doorbell_suppression,
+            self.doorbell_suppression_duration_ms,
+            self.sound_ring,
+            self.sound_open,
+            self.sound_rto,
+            self.sound_cm,
+            self.sound_confirmation,
+            self.sound_level,
+            self.single_button_press_action,
+            self.double_button_press_action,
+            self.battery_type,
+            int(self.automatic_battery_type_detection),
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class BatteryReport:
     """Payload of Battery Report (0x0011)."""
 
@@ -397,6 +495,16 @@ def build_lock_action(
 def build_request_config(challenge: bytes) -> bytes:
     """Payload of Request Config (0x0014)."""
     return challenge
+
+
+def build_request_advanced_config(challenge: bytes) -> bytes:
+    """Payload of Request Advanced Config (0x0036)."""
+    return challenge
+
+
+def build_set_advanced_config(config: AdvancedConfig, challenge: bytes, pin: int) -> bytes:
+    """Payload of Set Advanced Config (0x0035)."""
+    return config.serialize() + challenge + struct.pack("<H", pin)
 
 
 def build_verify_security_pin(challenge: bytes, pin: int) -> bytes:

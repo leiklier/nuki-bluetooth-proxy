@@ -33,7 +33,7 @@ from .errors import (
     NukiProtocolError,
     NukiResponseTimeoutError,
 )
-from .messages import BatteryReport, LogEntry, OpenerConfig, OpenerState
+from .messages import AdvancedConfig, BatteryReport, LogEntry, OpenerConfig, OpenerState
 
 __all__ = [
     "INITIALIZATION_SERVICE_UUIDS",
@@ -41,6 +41,7 @@ __all__ = [
     "PAIRING_GDIO_UUID",
     "PAIRING_SERVICE_UUID",
     "USDIO_UUID",
+    "AdvancedConfig",
     "BatteryReport",
     "Capability",
     "ClientType",

@@ -77,6 +77,28 @@ class FakeOpener:
         self.firmware_version = (1, 8, 0)
         self.hardware_revision = (5, 2)
         self.nuki_id = 0x11223344
+        self.advanced_config = messages.AdvancedConfig(
+            intercom_id=42,
+            bus_mode_switch=0,
+            short_circuit_duration_ms=0,
+            electric_strike_delay_ms=0,
+            random_electric_strike_delay=False,
+            electric_strike_duration_ms=3000,
+            disable_rto_after_ring=False,
+            rto_timeout_minutes=20,
+            doorbell_suppression=0x00,
+            doorbell_suppression_duration_ms=500,
+            sound_ring=1,
+            sound_open=1,
+            sound_rto=1,
+            sound_cm=1,
+            sound_confirmation=1,
+            sound_level=80,
+            single_button_press_action=1,
+            double_button_press_action=4,
+            battery_type=0,
+            automatic_battery_type_detection=True,
+        )
 
     # --- helpers ------------------------------------------------------------
 
@@ -251,6 +273,22 @@ class FakeOpener:
             if payload[0:32] != self.challenge:
                 return error(ErrorCode.K_BAD_NONCE)
             return [encrypted(Command.CONFIG, self.config_payload())]
+
+        if command == Command.REQUEST_ADVANCED_CONFIG:
+            if payload[0:32] != self.challenge:
+                return error(ErrorCode.K_BAD_NONCE)
+            return [encrypted(Command.ADVANCED_CONFIG, self.advanced_config.serialize())]
+
+        if command == Command.SET_ADVANCED_CONFIG:
+            size = messages.AdvancedConfig._SIZE
+            if payload[size : size + 32] != self.challenge:
+                return error(ErrorCode.K_BAD_NONCE)
+            (pin,) = struct.unpack("<H", payload[size + 32 : size + 34])
+            if pin != self.security_pin:
+                return error(ErrorCode.K_BAD_PIN)
+            self.advanced_config = messages.AdvancedConfig.parse(payload[:size])
+            self.state.config_update_count = (self.state.config_update_count + 1) % 256
+            return [encrypted(Command.STATUS, bytes([StatusCode.COMPLETE]))]
 
         if command == Command.VERIFY_SECURITY_PIN:
             if payload[0:32] != self.challenge:
