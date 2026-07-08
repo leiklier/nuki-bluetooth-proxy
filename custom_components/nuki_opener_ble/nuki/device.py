@@ -209,27 +209,30 @@ class NukiOpenerDevice:
         """
         if previous is None:
             return
-        ring = False
+        ring = (
+            state.nuki_state == NukiState.CONTINUOUS_MODE
+            and state.trigger == Trigger.MANUAL
+            and state.lock_state in _OPEN_STATES
+            and previous.lock_state not in _OPEN_STATES
+        ) or (
+            state.trigger == Trigger.MANUAL
+            and state.lock_state in _OPEN_STATES
+            and previous.lock_state == LockState.RTO_ACTIVE
+        )
         if (
-            (
-                state.nuki_state == NukiState.CONTINUOUS_MODE
-                and state.trigger == Trigger.MANUAL
-                and state.lock_state in _OPEN_STATES
-                and previous.lock_state not in _OPEN_STATES
-            )
-            or (
-                state.trigger == Trigger.MANUAL
-                and state.lock_state in _OPEN_STATES
-                and previous.lock_state == LockState.RTO_ACTIVE
-            )
-            or (
-                adv_signaled_change
-                and state.lock_state == LockState.LOCKED
-                and previous.lock_state == LockState.LOCKED
-                and previous.nuki_state == state.nuki_state
-            )
+            not ring
+            and adv_signaled_change
+            and state.lock_state == LockState.LOCKED
+            and previous.lock_state == LockState.LOCKED
+            and previous.nuki_state == state.nuki_state
         ):
-            ring = True
+            # Weak signal: a state-change beacon without any visible change.
+            # It also matches non-ring causes (e.g. the Nuki app connecting),
+            # so when the activity log is available, leave detection to it.
+            if self.security_pin is not None:
+                _LOGGER.debug("Deferring ambiguous ring signal to log-based detection")
+            else:
+                ring = True
         if ring:
             self._fire_ring(RingEvent(timestamp=datetime.now(UTC), detected_by="state_transition"))
 

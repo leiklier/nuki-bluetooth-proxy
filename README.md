@@ -44,7 +44,9 @@ signals that something changed.
 Rings are detected from state transitions (the same heuristics nuki_hub uses). If you also
 enter your Nuki **security PIN** in the integration options, rings are additionally
 confirmed from the Opener's activity log, which is more reliable and reports whether the
-ring was suppressed (Ring Suppression).
+ring was suppressed (Ring Suppression). With a PIN configured, the weakest heuristic (a
+state-change beacon without any visible change) defers to the log entirely, since it can
+also be triggered by e.g. the Nuki app connecting.
 
 On some intercom wirings (e.g. Urmet 1+1 in privacy mode) firing the electric strike
 shorts the same lines the doorbell detection listens on, so the Opener falsely detects a

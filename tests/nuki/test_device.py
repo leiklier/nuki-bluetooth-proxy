@@ -280,3 +280,30 @@ class TestStrikeEchoInLog:
         await device.update()
         assert len(rings) == 1
         await device.client.disconnect()
+
+
+class TestWeakHeuristicWithPin:
+    async def test_plain_ring_deferred_to_log_when_pin_set(
+        self, environment: FakeEnvironment
+    ) -> None:
+        """With a PIN, an ambiguous state-change beacon alone is not a ring."""
+        opener = environment.opener
+        opener.add_lock_action_log_entry()
+        device = make_device(environment, security_pin=1234)
+        rings: list[RingEvent] = []
+        device.subscribe_ring(rings.append)
+        await device.update()
+
+        # Beacon flags a change but nothing changed and no log entry appears
+        # (e.g. the Nuki app connected briefly).
+        device.handle_advertisement(opener_beacon(state_changed=True))
+        await device.update()
+        assert rings == []
+
+        # A real ring writes a log entry and is still detected.
+        opener.simulate_plain_ring()
+        device.handle_advertisement(opener_beacon(state_changed=True))
+        await device.update()
+        assert len(rings) == 1
+        assert rings[0].detected_by == "log"
+        await device.client.disconnect()
