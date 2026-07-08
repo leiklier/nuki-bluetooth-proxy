@@ -176,3 +176,44 @@ class TestCommands:
         # Both operations ran before the idle disconnect fired.
         assert len(environment.clients) == 1
         await client.disconnect()
+
+
+class TestRequestRetry:
+    async def test_request_retries_after_connection_drop(
+        self, environment: FakeEnvironment
+    ) -> None:
+        """A request whose connection drops mid-flight is retried."""
+        credentials = make_credentials(environment.opener)
+        client = make_client(environment, credentials)
+        original = client._request_once
+        calls = 0
+
+        async def flaky(*args, **kwargs):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise NukiConnectionError("disconnected while waiting for response")
+            return await original(*args, **kwargs)
+
+        client._request_once = flaky
+        state = await client.get_state()
+        assert state.lock_state == LockState.LOCKED
+        assert calls == 2
+        await client.disconnect()
+
+    async def test_request_gives_up_after_attempts(self, environment: FakeEnvironment) -> None:
+        """Persistent connection failures surface after the retries."""
+        credentials = make_credentials(environment.opener)
+        client = make_client(environment, credentials)
+        calls = 0
+
+        async def always_fails(*args, **kwargs):
+            nonlocal calls
+            calls += 1
+            raise NukiConnectionError("disconnected while waiting for response")
+
+        client._request_once = always_fails
+        with pytest.raises(NukiConnectionError):
+            await client.get_state()
+        assert calls == 3
+        await client.disconnect()

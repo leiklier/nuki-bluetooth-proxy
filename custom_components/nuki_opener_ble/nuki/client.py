@@ -62,6 +62,8 @@ _LOGGER = logging.getLogger(__name__)
 RESPONSE_TIMEOUT = 15.0
 PAIRING_TIMEOUT = 30.0
 DISCONNECT_DELAY = 3.0
+REQUEST_ATTEMPTS = 3
+RETRY_DELAY = 0.5
 
 
 @dataclass(frozen=True)
@@ -135,6 +137,7 @@ class NukiOpenerClient:
         self._plain_reassembler = protocol.MessageReassembler(encrypted=False)
         self._encrypted_reassembler = protocol.MessageReassembler(encrypted=True)
         self._disconnect_timer: asyncio.TimerHandle | None = None
+        self._disconnect_task: asyncio.Future[None] | None = None
         self._expected_disconnect = False
         self.state_callback: Callable[[OpenerState], None] | None = None
 
@@ -201,10 +204,16 @@ class NukiOpenerClient:
         if not self.is_connected:
             return
         loop = asyncio.get_running_loop()
-        self._disconnect_timer = loop.call_later(
-            self._disconnect_delay,
-            lambda: asyncio.ensure_future(self.disconnect()),
-        )
+        self._disconnect_timer = loop.call_later(self._disconnect_delay, self._idle_disconnect)
+
+    def _idle_disconnect(self) -> None:
+        # Never tear down a connection an operation has started using in the
+        # meantime; that operation will schedule a fresh timer when it ends.
+        if self._operation_lock.locked() or (
+            self._pending is not None and not self._pending.future.done()
+        ):
+            return
+        self._disconnect_task = asyncio.ensure_future(self.disconnect())
 
     def _cancel_disconnect_timer(self) -> None:
         if self._disconnect_timer is not None:
@@ -286,8 +295,39 @@ class NukiOpenerClient:
     ) -> tuple[bytes, list[bytes]]:
         """Send a message and wait for the expected response command.
 
-        Returns ``(payload, aggregated_payloads)``.
+        Retries when the BLE link drops mid-request (common over Bluetooth
+        proxies); replaying is safe because Nuki's challenge nonces are
+        single-use, so a command the device already executed is rejected
+        rather than executed twice. Returns ``(payload, aggregated_payloads)``.
         """
+        last_error: NukiConnectionError | None = None
+        for attempt in range(REQUEST_ATTEMPTS):
+            if attempt:
+                _LOGGER.debug(
+                    "Retrying %s request (attempt %d/%d)",
+                    expected.name,
+                    attempt + 1,
+                    REQUEST_ATTEMPTS,
+                )
+                await self.disconnect()
+                await asyncio.sleep(RETRY_DELAY)
+            try:
+                return await self._request_once(
+                    characteristic, message, expected, aggregate, response_timeout
+                )
+            except NukiConnectionError as err:
+                last_error = err
+        assert last_error is not None
+        raise last_error
+
+    async def _request_once(
+        self,
+        characteristic: str,
+        message: bytes,
+        expected: Command,
+        aggregate: tuple[Command, ...] = (),
+        response_timeout: float | None = None,
+    ) -> tuple[bytes, list[bytes]]:
         if self._pending is not None and not self._pending.future.done():
             raise NukiProtocolError("another command is already in flight")
         pending = _PendingCommand(
