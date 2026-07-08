@@ -53,6 +53,7 @@ class FakeLogEntry:
     type: LogEntryType
     data: bytes = b""
     name: str = "Fake"
+    timestamp: tuple[int, int, int, int, int, int] = (2026, 7, 4, 12, 0, 0)
 
 
 class FakeOpener:
@@ -107,19 +108,37 @@ class FakeOpener:
         self.shared_key = crypto.derive_shared_key(self.private_key, credentials.public_key)
         self.pairing_mode = False
 
-    def add_doorbell_log_entry(self, suppressed: bool = False) -> None:
+    def add_doorbell_log_entry(
+        self,
+        suppressed: bool = False,
+        timestamp: tuple[int, int, int, int, int, int] = (2026, 7, 4, 12, 0, 0),
+    ) -> None:
         index = (self.log_entries[-1].index + 1) if self.log_entries else 1
         data = bytes([0x00, 0x00, 0x00, 0x01 if suppressed else 0x00, 0x01, 0x00]) + struct.pack(
             "<H", 0
         )
         self.log_entries.append(
-            FakeLogEntry(index=index, type=LogEntryType.DOORBELL_RECOGNITION, data=data)
+            FakeLogEntry(
+                index=index,
+                type=LogEntryType.DOORBELL_RECOGNITION,
+                data=data,
+                timestamp=timestamp,
+            )
         )
 
-    def add_lock_action_log_entry(self) -> None:
+    def add_lock_action_log_entry(
+        self,
+        action: int = 1,
+        timestamp: tuple[int, int, int, int, int, int] = (2026, 7, 4, 12, 0, 0),
+    ) -> None:
         index = (self.log_entries[-1].index + 1) if self.log_entries else 1
         self.log_entries.append(
-            FakeLogEntry(index=index, type=LogEntryType.LOCK_ACTION, data=bytes([1, 0, 0, 0]))
+            FakeLogEntry(
+                index=index,
+                type=LogEntryType.LOCK_ACTION,
+                data=bytes([action, 0, 0, 0]),
+                timestamp=timestamp,
+            )
         )
 
     def state_payload(self) -> bytes:
@@ -161,7 +180,7 @@ class FakeOpener:
     def log_entry_payload(self, entry: FakeLogEntry) -> bytes:
         return (
             struct.pack("<I", entry.index)
-            + struct.pack("<HBBBBB", 2026, 7, 4, 12, 0, 0)
+            + struct.pack("<HBBBBB", *entry.timestamp)
             + self.auth_id
             + messages.encode_name(entry.name)
             + bytes([entry.type])

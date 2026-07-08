@@ -246,3 +246,37 @@ class TestRingSuppressionAfterStrike:
         remaining = device._suppress_rings_until - time.monotonic()
         assert 20 <= remaining <= 26  # 5s + 10s + 10s margin
         await device.client.disconnect()
+
+
+class TestStrikeEchoInLog:
+    async def test_app_buzz_echo_is_ignored(self, environment: FakeEnvironment) -> None:
+        """A ring logged right after an app-initiated strike is a wiring echo."""
+        opener = environment.opener
+        opener.add_lock_action_log_entry()  # baseline entry
+        device = make_device(environment, security_pin=1234)
+        rings: list[RingEvent] = []
+        device.subscribe_ring(rings.append)
+        await device.update()  # establish log baseline
+
+        # Buzz from the Nuki app: strike logged, echo ring 2 s later.
+        opener.add_lock_action_log_entry(action=3, timestamp=(2026, 7, 8, 12, 0, 0))
+        opener.add_doorbell_log_entry(timestamp=(2026, 7, 8, 12, 0, 2))
+        await device.update()
+        assert rings == []
+        await device.client.disconnect()
+
+    async def test_real_ring_before_buzz_still_fires(self, environment: FakeEnvironment) -> None:
+        """A visitor rings, then the resident buzzes: the ring must fire."""
+        opener = environment.opener
+        opener.add_lock_action_log_entry()
+        device = make_device(environment, security_pin=1234)
+        rings: list[RingEvent] = []
+        device.subscribe_ring(rings.append)
+        await device.update()
+
+        # Real ring first, buzz 5 s later — the ring precedes the strike.
+        opener.add_doorbell_log_entry(timestamp=(2026, 7, 8, 12, 0, 0))
+        opener.add_lock_action_log_entry(action=3, timestamp=(2026, 7, 8, 12, 0, 5))
+        await device.update()
+        assert len(rings) == 1
+        await device.client.disconnect()

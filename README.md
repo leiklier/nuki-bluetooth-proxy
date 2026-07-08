@@ -50,8 +50,10 @@ On some intercom wirings (e.g. Urmet 1+1 in privacy mode) firing the electric st
 shorts the same lines the doorbell detection listens on, so the Opener falsely detects a
 ring whenever the door is buzzed. The integration therefore ignores ring detections for
 the duration of its own strike actuations (derived from the configured strike delay and
-duration, plus a margin). Buzzes initiated outside Home Assistant (Nuki app, fob) cannot
-be distinguished and may still produce a false ring event on such wirings.
+duration, plus a margin). With a security PIN configured, buzzes initiated outside Home
+Assistant (Nuki app, fob) are filtered too: a ring that the activity log shows was
+detected right after an electric strike is discarded as a wiring echo, while a real ring
+that *precedes* a buzz is still reported.
 
 ## Requirements
 

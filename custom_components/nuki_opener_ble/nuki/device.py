@@ -135,13 +135,15 @@ class NukiOpenerDevice:
             self._extend_ring_suppression()
         return status
 
-    def _extend_ring_suppression(self) -> None:
-        window = RING_SUPPRESSION_FALLBACK
+    def _ring_suppression_window(self) -> float:
         if (config := self.advanced_config) is not None:
-            window = (
+            return (
                 config.electric_strike_delay_ms + config.electric_strike_duration_ms
             ) / 1000 + RING_SUPPRESSION_MARGIN
-        self._suppress_rings_until = time.monotonic() + window
+        return RING_SUPPRESSION_FALLBACK
+
+    def _extend_ring_suppression(self) -> None:
+        self._suppress_rings_until = time.monotonic() + self._ring_suppression_window()
 
     async def change_advanced_config(self, **changes: Any) -> None:
         """Change advanced-config fields (requires the security PIN).
@@ -258,6 +260,13 @@ class NukiOpenerDevice:
         ]
         self._last_log_index = newest_index
         for entry in sorted(new_rings, key=lambda entry: entry.index):
+            if self._is_strike_echo(entry, entries):
+                _LOGGER.debug(
+                    "Ignoring ring log entry %d: logged right after an electric "
+                    "strike (wiring echo)",
+                    entry.index,
+                )
+                continue
             self._fire_ring(
                 RingEvent(
                     timestamp=_log_timestamp(entry),
@@ -265,6 +274,29 @@ class NukiOpenerDevice:
                     suppressed=entry.doorbell.doorbell_suppressed if entry.doorbell else None,
                 )
             )
+
+    def _is_strike_echo(self, ring: LogEntry, entries: list[LogEntry]) -> bool:
+        """Whether a ring log entry is the echo of an electric strike.
+
+        On wirings where the strike shorts the doorbell lines (e.g. Urmet 1+1
+        in privacy mode), every buzz — also one triggered from the Nuki app or
+        a fob — is followed by a false doorbell-recognition entry. Such an
+        entry appears at (not before) the strike entry, within the strike's
+        active window, measured with the device's own log clock.
+        """
+        if ring.timestamp is None:
+            return False
+        window = self._ring_suppression_window()
+        for entry in entries:
+            if (
+                entry.type == LogEntryType.LOCK_ACTION
+                and entry.data
+                and entry.data[0] == LockAction.ELECTRIC_STRIKE_ACTUATION
+                and entry.timestamp is not None
+                and 0 <= (ring.timestamp - entry.timestamp).total_seconds() <= window
+            ):
+                return True
+        return False
 
 
 def _log_timestamp(entry: LogEntry) -> datetime:
