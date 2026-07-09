@@ -48,11 +48,12 @@ class RingEvent:
     timestamp: datetime
     detected_by: str  # "state_transition" or "log"
     suppressed: bool | None = None
-    # Whether ring-to-open / continuous mode was active when the bell rang,
-    # and what had activated it (e.g. "bridge" = this integration, "button").
-    # A plain visitor ring has ring_to_open_active is False and source
-    # "doorbell"; a self-entry through ring-to-open has ring_to_open_active
-    # True.
+    # Context describing the opener's mode when the bell rang, NOT who rang
+    # (the ringer's identity is not in the opener's data):
+    # - ring_to_open_active / continuous_mode_active: whether the door
+    #   auto-opened in response.
+    # - source: what had armed RTO/CM ("bridge" = this integration, "button",
+    #   "app", ...), or "doorbell" when nothing was armed.
     source: str | None = None
     ring_to_open_active: bool | None = None
     continuous_mode_active: bool | None = None

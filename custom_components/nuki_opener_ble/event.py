@@ -44,9 +44,10 @@ class NukiOpenerDoorbellEvent(NukiOpenerEntity, EventEntity):
             {
                 "detected_by": event.detected_by,
                 "suppressed": event.suppressed,
-                # Context from the activity log: lets automations tell a plain
-                # visitor ring (ring_to_open_active False, source "doorbell")
-                # from a self-entry through ring-to-open.
+                # Context from the activity log: whether the door auto-opened
+                # (ring_to_open_active / continuous_mode_active) and what armed
+                # that mode (source). These describe the opener's mode, not who
+                # rang — the ringer's identity is not available.
                 "source": event.source,
                 "ring_to_open_active": event.ring_to_open_active,
                 "continuous_mode_active": event.continuous_mode_active,
