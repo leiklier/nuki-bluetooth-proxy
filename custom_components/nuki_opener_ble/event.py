@@ -41,6 +41,15 @@ class NukiOpenerDoorbellEvent(NukiOpenerEntity, EventEntity):
     def _async_handle_ring(self, event: RingEvent) -> None:
         self._trigger_event(
             EVENT_RING,
-            {"detected_by": event.detected_by, "suppressed": event.suppressed},
+            {
+                "detected_by": event.detected_by,
+                "suppressed": event.suppressed,
+                # Context from the activity log: lets automations tell a plain
+                # visitor ring (ring_to_open_active False, source "doorbell")
+                # from a self-entry through ring-to-open.
+                "source": event.source,
+                "ring_to_open_active": event.ring_to_open_active,
+                "continuous_mode_active": event.continuous_mode_active,
+            },
         )
         self.async_write_ha_state()

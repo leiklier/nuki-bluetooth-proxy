@@ -39,11 +39,23 @@ RING_SUPPRESSION_MARGIN = 10.0
 
 @dataclass(frozen=True, slots=True)
 class RingEvent:
-    """A detected doorbell ring."""
+    """A detected doorbell ring.
+
+    The context fields are populated from the activity log (``detected_by ==
+    "log"``); they are None for the weaker state-transition heuristic.
+    """
 
     timestamp: datetime
     detected_by: str  # "state_transition" or "log"
     suppressed: bool | None = None
+    # Whether ring-to-open / continuous mode was active when the bell rang,
+    # and what had activated it (e.g. "bridge" = this integration, "button").
+    # A plain visitor ring has ring_to_open_active is False and source
+    # "doorbell"; a self-entry through ring-to-open has ring_to_open_active
+    # True.
+    source: str | None = None
+    ring_to_open_active: bool | None = None
+    continuous_mode_active: bool | None = None
 
 
 class NukiOpenerDevice:
@@ -270,11 +282,17 @@ class NukiOpenerDevice:
                     entry.index,
                 )
                 continue
+            doorbell = entry.doorbell
             self._fire_ring(
                 RingEvent(
                     timestamp=_log_timestamp(entry),
                     detected_by="log",
-                    suppressed=entry.doorbell.doorbell_suppressed if entry.doorbell else None,
+                    suppressed=doorbell.doorbell_suppressed if doorbell else None,
+                    source=doorbell.source.name.lower() if doorbell else None,
+                    ring_to_open_active=(doorbell.ring_to_open_activated if doorbell else None),
+                    continuous_mode_active=(
+                        doorbell.continuous_mode_activated if doorbell else None
+                    ),
                 )
             )
 

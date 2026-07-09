@@ -307,3 +307,22 @@ class TestWeakHeuristicWithPin:
         assert len(rings) == 1
         assert rings[0].detected_by == "log"
         await device.client.disconnect()
+
+
+class TestRingEventContext:
+    async def test_log_ring_exposes_source_and_context(self, environment: FakeEnvironment) -> None:
+        """A log-detected ring carries source and RTO/CM context."""
+        opener = environment.opener
+        opener.add_lock_action_log_entry()
+        device = make_device(environment, security_pin=1234)
+        rings: list[RingEvent] = []
+        device.subscribe_ring(rings.append)
+        await device.update()
+
+        opener.add_doorbell_log_entry()  # plain visitor ring: source doorbell
+        await device.update()
+        assert len(rings) == 1
+        assert rings[0].source == "doorbell"
+        assert rings[0].ring_to_open_active is False
+        assert rings[0].continuous_mode_active is False
+        await device.client.disconnect()
