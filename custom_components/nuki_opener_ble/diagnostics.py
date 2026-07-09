@@ -9,9 +9,10 @@ from homeassistant.components.diagnostics import async_redact_data
 from homeassistant.core import HomeAssistant
 
 from . import NukiOpenerConfigEntry
+from .const import CONF_SECURITY_PIN
 from .nuki import NukiError
 
-TO_REDACT = {"credentials", "address", "serial_number"}
+TO_REDACT = {"credentials", "address", "serial_number", CONF_SECURITY_PIN}
 
 
 def _asdict(obj: Any) -> Any:
@@ -43,7 +44,7 @@ async def async_get_config_entry_diagnostics(
     return {
         "entry": {
             "data": async_redact_data(dict(entry.data), TO_REDACT),
-            "options": dict(entry.options),
+            "options": async_redact_data(dict(entry.options), TO_REDACT),
         },
         "state": _asdict(device.state),
         "config": _asdict(device.config),
