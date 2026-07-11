@@ -77,6 +77,10 @@ class FakeOpener:
         self.omit_lock_completion = False
         self.omit_lock_state_update = False
         self.duplicate_lock_accepted = False
+        # Dead air: swallow the response to the next N USDIO writes.
+        self.swallow_usdio_responses = 0
+        # Answer the next N lock actions with K_BAD_NONCE (replayed nonce).
+        self.reject_lock_action_nonce = 0
         self.config_name = "Front Door"
         self.capabilities = 0x01  # door opening and ring-to-open
         self.firmware_version = (1, 8, 0)
@@ -260,6 +264,9 @@ class FakeOpener:
 
     def handle_usdio_write(self, data: bytes) -> list[bytes]:
         assert self.shared_key is not None, "device is not paired"
+        if self.swallow_usdio_responses:
+            self.swallow_usdio_responses -= 1
+            return []
         _, command, payload = protocol.decode_encrypted(data, self.shared_key)
 
         def encrypted(command: Command, payload: bytes) -> bytes:
@@ -281,6 +288,9 @@ class FakeOpener:
             return error(ErrorCode.K_BAD_PARAMETER)
 
         if command == Command.LOCK_ACTION:
+            if self.reject_lock_action_nonce:
+                self.reject_lock_action_nonce -= 1
+                return error(ErrorCode.K_BAD_NONCE)
             if payload[-32:] != self.challenge:
                 return error(ErrorCode.K_BAD_NONCE)
             action = LockAction(payload[0])

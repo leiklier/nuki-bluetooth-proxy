@@ -59,7 +59,14 @@ from .messages import (
 
 _LOGGER = logging.getLogger(__name__)
 
+# Overall wait for an accepted action's completion status (electric strike).
 RESPONSE_TIMEOUT = 15.0
+# Per-attempt watchdog for request-response exchanges. A healthy Opener
+# answers in well under a second; observed failure mode is dead air — the
+# connection goes deaf (typically right after a lock action) and only drops
+# ~10 s later. A short watchdog makes the retry (which reconnects) kick in
+# after seconds instead of waiting for the link to die.
+REQUEST_TIMEOUT = 4.0
 PAIRING_TIMEOUT = 30.0
 DISCONNECT_DELAY = 3.0
 REQUEST_ATTEMPTS = 3
@@ -123,11 +130,13 @@ class NukiOpenerClient:
         credentials: NukiOpenerCredentials | None = None,
         disconnect_delay: float = DISCONNECT_DELAY,
         response_timeout: float = RESPONSE_TIMEOUT,
+        request_timeout: float = REQUEST_TIMEOUT,
     ) -> None:
         self._ble_device_getter = ble_device_getter
         self.credentials = credentials
         self._disconnect_delay = disconnect_delay
         self._response_timeout = response_timeout
+        self._request_timeout = request_timeout
 
         self._client: BleakClient | None = None
         self._connect_lock = asyncio.Lock()
@@ -353,7 +362,7 @@ class NukiOpenerClient:
         self._pending = pending
         try:
             await self._write(characteristic, message)
-            async with asyncio.timeout(response_timeout or self._response_timeout):
+            async with asyncio.timeout(response_timeout or self._request_timeout):
                 _, payload = await pending.future
         except TimeoutError as err:
             raise NukiResponseTimeoutError(f"no {expected.name} response within timeout") from err
@@ -482,25 +491,39 @@ class NukiOpenerClient:
             raise NukiProtocolError("not paired: no credentials available")
         async with self._operation_lock:
             try:
-                challenge = await self._request_challenge()
-                # Armed before sending so a completion that arrives while the
-                # ACCEPTED response is still being processed is not lost.
-                completion: asyncio.Queue[bytes | NukiDeviceError | None] = asyncio.Queue()
-                self._completion = completion
-                try:
-                    payload, _ = await self._request_encrypted(
-                        Command.LOCK_ACTION,
-                        messages.build_lock_action(
-                            action, self.credentials.app_id, challenge, name_suffix=name_suffix
-                        ),
-                        expected=Command.STATUS,
-                    )
-                    status = messages.parse_status(payload)
-                    if status == StatusCode.ACCEPTED and wait_for_completion:
-                        status = await self._wait_for_completion(completion)
-                    return status
-                finally:
-                    self._completion = None
+                # Two rounds: when a dead-air retry replays the action with a
+                # nonce the device already consumed, it answers K_BAD_NONCE
+                # (rather than executing twice) and a fresh challenge + action
+                # is needed.
+                for nonce_attempt in range(2):
+                    challenge = await self._request_challenge()
+                    # Armed before sending so a completion that arrives while
+                    # the ACCEPTED response is still being processed is not
+                    # lost.
+                    completion: asyncio.Queue[bytes | NukiDeviceError | None] = asyncio.Queue()
+                    self._completion = completion
+                    try:
+                        payload, _ = await self._request_encrypted(
+                            Command.LOCK_ACTION,
+                            messages.build_lock_action(
+                                action, self.credentials.app_id, challenge, name_suffix=name_suffix
+                            ),
+                            expected=Command.STATUS,
+                        )
+                        status = messages.parse_status(payload)
+                        if status == StatusCode.ACCEPTED and wait_for_completion:
+                            status = await self._wait_for_completion(completion)
+                        return status
+                    except NukiDeviceError as err:
+                        if err.error_code == ErrorCode.K_BAD_NONCE and nonce_attempt == 0:
+                            _LOGGER.debug(
+                                "Lock action rejected with a stale nonce; redoing challenge"
+                            )
+                            continue
+                        raise
+                    finally:
+                        self._completion = None
+                raise NukiProtocolError("unreachable")  # for the type checker
             finally:
                 self._schedule_disconnect()
 
