@@ -73,6 +73,10 @@ class FakeOpener:
         self.paired_client_type: ClientType | None = None
         self.received_lock_actions: list[LockAction] = []
         self.log_entries: list[FakeLogEntry] = []
+        # Response shaping for lock actions, mimicking real-hardware quirks.
+        self.omit_lock_completion = False
+        self.omit_lock_state_update = False
+        self.duplicate_lock_accepted = False
         self.config_name = "Front Door"
         self.capabilities = 0x01  # door opening and ring-to-open
         self.firmware_version = (1, 8, 0)
@@ -282,11 +286,14 @@ class FakeOpener:
             action = LockAction(payload[0])
             self.received_lock_actions.append(action)
             self._apply_lock_action(action)
-            return [
-                encrypted(Command.STATUS, bytes([StatusCode.ACCEPTED])),
-                encrypted(Command.OPENER_STATES, self.state_payload()),
-                encrypted(Command.STATUS, bytes([StatusCode.COMPLETE])),
-            ]
+            responses = [encrypted(Command.STATUS, bytes([StatusCode.ACCEPTED]))]
+            if self.duplicate_lock_accepted:
+                responses.append(encrypted(Command.STATUS, bytes([StatusCode.ACCEPTED])))
+            if not self.omit_lock_state_update:
+                responses.append(encrypted(Command.OPENER_STATES, self.state_payload()))
+            if not self.omit_lock_completion:
+                responses.append(encrypted(Command.STATUS, bytes([StatusCode.COMPLETE])))
+            return responses
 
         if command == Command.REQUEST_CONFIG:
             if payload[0:32] != self.challenge:
@@ -387,11 +394,17 @@ class FakeBleakClient:
 
     chunk_size = 20
 
-    def __init__(self, opener: FakeOpener, address: str = DEFAULT_ADDRESS) -> None:
+    def __init__(
+        self,
+        opener: FakeOpener,
+        address: str = DEFAULT_ADDRESS,
+        disconnected_callback: Any = None,
+    ) -> None:
         self.opener = opener
         self.address = address
         self._connected = True
         self._callbacks: dict[str, Any] = {}
+        self._disconnected_callback = disconnected_callback
         self.services = _FakeServices([PAIRING_GDIO_UUID, USDIO_UUID])
         self.disconnect_count = 0
 
@@ -408,6 +421,12 @@ class FakeBleakClient:
     async def disconnect(self) -> None:
         self._connected = False
         self.disconnect_count += 1
+
+    def simulate_unexpected_disconnect(self) -> None:
+        """Drop the link from the device side (e.g. a proxy hiccup)."""
+        self._connected = False
+        if self._disconnected_callback is not None:
+            self._disconnected_callback(self)
 
     async def write_gatt_char(self, uuid: str, data: bytes, response: bool = True) -> None:
         assert self._connected, "write on a disconnected client"
@@ -437,7 +456,11 @@ class FakeEnvironment:
     address: str = DEFAULT_ADDRESS
 
     def make_client(self, *args: Any, **kwargs: Any) -> FakeBleakClient:
-        client = FakeBleakClient(self.opener, self.address)
+        client = FakeBleakClient(
+            self.opener,
+            self.address,
+            disconnected_callback=kwargs.get("disconnected_callback"),
+        )
         self.clients.append(client)
         return client
 
@@ -448,7 +471,7 @@ def patch_establish_connection(monkeypatch: Any, environment: FakeEnvironment) -
     async def _establish_connection(
         client_class: Any, device: Any, name: str, **kwargs: Any
     ) -> FakeBleakClient:
-        return environment.make_client()
+        return environment.make_client(**kwargs)
 
     monkeypatch.setattr(
         "custom_components.nuki_opener_ble.nuki.client.establish_connection",

@@ -1,5 +1,7 @@
 """Tests for the BLE client against a simulated Opener."""
 
+import asyncio
+
 import pytest
 
 from custom_components.nuki_opener_ble.nuki import crypto
@@ -9,6 +11,7 @@ from custom_components.nuki_opener_ble.nuki.client import (
 )
 from custom_components.nuki_opener_ble.nuki.const import (
     ClientType,
+    Command,
     LockAction,
     LockState,
     StatusCode,
@@ -216,4 +219,45 @@ class TestRequestRetry:
         with pytest.raises(NukiConnectionError):
             await client.get_state()
         assert calls == 3
+        await client.disconnect()
+
+
+class TestCompletionWait:
+    async def test_disconnect_during_completion_wait_returns_fast(
+        self, environment: FakeEnvironment
+    ) -> None:
+        """A link drop after ACCEPTED must not stall for the full timeout."""
+        environment.opener.omit_lock_completion = True
+        credentials = make_credentials(environment.opener)
+        client = make_client(environment, credentials)
+        task = asyncio.ensure_future(client.lock_action(LockAction.ACTIVATE_RTO))
+        # Let the ACCEPTED response arrive and the completion wait start.
+        for _ in range(20):
+            await asyncio.sleep(0)
+        assert environment.opener.received_lock_actions == [LockAction.ACTIVATE_RTO]
+        assert not task.done()
+        environment.clients[-1].simulate_unexpected_disconnect()
+        status = await asyncio.wait_for(task, timeout=1)
+        assert status == StatusCode.ACCEPTED
+        await client.disconnect()
+
+    async def test_interim_status_is_ignored_until_complete(
+        self, environment: FakeEnvironment
+    ) -> None:
+        """A duplicate ACCEPTED does not end the completion wait."""
+        environment.opener.duplicate_lock_accepted = True
+        credentials = make_credentials(environment.opener)
+        client = make_client(environment, credentials)
+        status = await client.lock_action(LockAction.ACTIVATE_RTO)
+        assert status == StatusCode.COMPLETE
+        await client.disconnect()
+
+    async def test_stale_status_is_dropped(self, environment: FakeEnvironment) -> None:
+        """A status with no armed waiter must not leak into a later action."""
+        credentials = make_credentials(environment.opener)
+        client = make_client(environment, credentials)
+        # A late completion from a previous, already-finished action.
+        client._handle_message(Command.STATUS, bytes([StatusCode.ACCEPTED]))
+        status = await client.lock_action(LockAction.ACTIVATE_RTO)
+        assert status == StatusCode.COMPLETE
         await client.disconnect()
