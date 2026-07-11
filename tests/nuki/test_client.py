@@ -261,3 +261,46 @@ class TestCompletionWait:
         status = await client.lock_action(LockAction.ACTIVATE_RTO)
         assert status == StatusCode.COMPLETE
         await client.disconnect()
+
+
+class TestDeadAirRecovery:
+    async def test_request_recovers_from_dead_air(self, environment: FakeEnvironment) -> None:
+        """A write whose response never arrives is retried on a new connection
+        after the short request watchdog, not the full completion timeout."""
+        environment.opener.swallow_usdio_responses = 1
+        credentials = make_credentials(environment.opener)
+        client = NukiOpenerClient(
+            ble_device_getter=lambda: make_ble_device(environment.address),
+            credentials=credentials,
+            disconnect_delay=0.01,
+            request_timeout=0.1,
+        )
+        state = await asyncio.wait_for(client.get_state(), timeout=5)
+        assert state.lock_state == LockState.LOCKED
+        # The deaf connection was abandoned and a fresh one established.
+        assert len(environment.clients) == 2
+        await client.disconnect()
+
+    async def test_lock_action_redoes_challenge_on_stale_nonce(
+        self, environment: FakeEnvironment
+    ) -> None:
+        """A replayed action rejected with K_BAD_NONCE is redone from the
+        challenge instead of failing the service call."""
+        environment.opener.reject_lock_action_nonce = 1
+        credentials = make_credentials(environment.opener)
+        client = make_client(environment, credentials)
+        status = await client.lock_action(LockAction.ACTIVATE_RTO)
+        assert status == StatusCode.COMPLETE
+        assert environment.opener.received_lock_actions == [LockAction.ACTIVATE_RTO]
+        await client.disconnect()
+
+    async def test_lock_action_persistent_bad_nonce_raises(
+        self, environment: FakeEnvironment
+    ) -> None:
+        """A second K_BAD_NONCE in a row surfaces as a device error."""
+        environment.opener.reject_lock_action_nonce = 2
+        credentials = make_credentials(environment.opener)
+        client = make_client(environment, credentials)
+        with pytest.raises(NukiDeviceError):
+            await client.lock_action(LockAction.ACTIVATE_RTO)
+        await client.disconnect()
