@@ -50,6 +50,6 @@ class NukiOpenerEntity(PassiveBluetoothCoordinatorEntity[NukiOpenerCoordinator])
         try:
             await self.device.execute_lock_action(action, name_suffix=name_suffix)
         except NukiError as err:
-            raise HomeAssistantError(f"Nuki Opener action {action.name} failed: {err}") from err
-        finally:
             self.coordinator.async_update_listeners()
+            raise HomeAssistantError(f"Nuki Opener action {action.name} failed: {err}") from err
+        await self.coordinator.async_refresh_after_action()

@@ -133,7 +133,11 @@ class NukiOpenerClient:
         self._connect_lock = asyncio.Lock()
         self._operation_lock = asyncio.Lock()
         self._pending: _PendingCommand | None = None
-        self._status_queue: asyncio.Queue[bytes] = asyncio.Queue()
+        # Armed by lock_action before sending: buffers the action's status
+        # notifications (several can arrive in one event-loop tick), an error
+        # report, or None when the link drops. One queue per action, so a
+        # stale status can never be taken for a later action's completion.
+        self._completion: asyncio.Queue[bytes | NukiDeviceError | None] | None = None
         self._plain_reassembler = protocol.MessageReassembler(encrypted=False)
         self._encrypted_reassembler = protocol.MessageReassembler(encrypted=True)
         self._disconnect_timer: asyncio.TimerHandle | None = None
@@ -198,6 +202,8 @@ class NukiOpenerClient:
             self._pending.future.set_exception(
                 NukiConnectionError("disconnected while waiting for response")
             )
+        if self._completion is not None:
+            self._completion.put_nowait(None)
 
     def _schedule_disconnect(self) -> None:
         self._cancel_disconnect_timer()
@@ -249,6 +255,9 @@ class NukiOpenerClient:
             error = NukiDeviceError(report.error_code, report.command)
             if pending is not None and not pending.future.done():
                 pending.future.set_exception(error)
+            elif self._completion is not None:
+                # The accepted action failed while executing.
+                self._completion.put_nowait(error)
             else:
                 _LOGGER.warning("Unsolicited error report: %s", error)
             return
@@ -270,8 +279,14 @@ class NukiOpenerClient:
             return
         if command == Command.STATUS:
             # Completion of an ACCEPTED action; consumed by _wait_for_completion.
-            if self._status_queue.qsize() < 4:
-                self._status_queue.put_nowait(payload)
+            # A status with no armed waiter is stale (e.g. the late completion
+            # of an action whose wait already ended) and must not leak into a
+            # later action.
+            if self._completion is not None:
+                if self._completion.qsize() < 4:
+                    self._completion.put_nowait(payload)
+            else:
+                _LOGGER.debug("Dropping stale status notification")
             return
         _LOGGER.debug("Ignoring unsolicited %s", command.name)
 
@@ -467,28 +482,54 @@ class NukiOpenerClient:
             raise NukiProtocolError("not paired: no credentials available")
         async with self._operation_lock:
             try:
-                while not self._status_queue.empty():
-                    self._status_queue.get_nowait()
                 challenge = await self._request_challenge()
-                payload, _ = await self._request_encrypted(
-                    Command.LOCK_ACTION,
-                    messages.build_lock_action(
-                        action, self.credentials.app_id, challenge, name_suffix=name_suffix
-                    ),
-                    expected=Command.STATUS,
-                )
-                status = messages.parse_status(payload)
-                if status == StatusCode.ACCEPTED and wait_for_completion:
-                    status = await self._wait_for_completion()
-                return status
+                # Armed before sending so a completion that arrives while the
+                # ACCEPTED response is still being processed is not lost.
+                completion: asyncio.Queue[bytes | NukiDeviceError | None] = asyncio.Queue()
+                self._completion = completion
+                try:
+                    payload, _ = await self._request_encrypted(
+                        Command.LOCK_ACTION,
+                        messages.build_lock_action(
+                            action, self.credentials.app_id, challenge, name_suffix=name_suffix
+                        ),
+                        expected=Command.STATUS,
+                    )
+                    status = messages.parse_status(payload)
+                    if status == StatusCode.ACCEPTED and wait_for_completion:
+                        status = await self._wait_for_completion(completion)
+                    return status
+                finally:
+                    self._completion = None
             finally:
                 self._schedule_disconnect()
 
-    async def _wait_for_completion(self) -> StatusCode:
+    async def _wait_for_completion(
+        self, completion: asyncio.Queue[bytes | NukiDeviceError | None]
+    ) -> StatusCode:
+        """Wait for the final status of an accepted action.
+
+        Returns ACCEPTED when the link drops or nothing arrives in time: the
+        action was already accepted and is executing on the device, so
+        retrying would be wrong and waiting longer pointless.
+        """
         try:
             async with asyncio.timeout(self._response_timeout):
-                payload = await self._status_queue.get()
-            return messages.parse_status(payload)
+                while True:
+                    item = await completion.get()
+                    if item is None:
+                        _LOGGER.debug(
+                            "Link lost while waiting for action completion; assuming accepted"
+                        )
+                        return StatusCode.ACCEPTED
+                    if isinstance(item, NukiDeviceError):
+                        raise item
+                    status = messages.parse_status(item)
+                    if status == StatusCode.COMPLETE:
+                        return status
+                    _LOGGER.debug(
+                        "Ignoring interim status %s while waiting for completion", status.name
+                    )
         except TimeoutError:
             _LOGGER.warning("Timed out waiting for action completion; assuming accepted")
             return StatusCode.ACCEPTED

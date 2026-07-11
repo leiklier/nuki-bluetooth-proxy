@@ -8,6 +8,7 @@ device's activity log.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
 import dataclasses
 from dataclasses import dataclass
@@ -81,6 +82,10 @@ class NukiOpenerDevice:
         self._last_log_index: int | None = None
         self._suppress_rings_until = 0.0
         self._ring_callbacks: list[Callable[[RingEvent], None]] = []
+        self._update_lock = asyncio.Lock()
+        # Fired whenever the device pushes a state while connected, so the
+        # owner can re-render without waiting for the next poll.
+        self.state_listener: Callable[[], None] | None = None
 
         client.state_callback = self._on_unsolicited_state
 
@@ -102,33 +107,38 @@ class NukiOpenerDevice:
     # --- polling -----------------------------------------------------------
 
     async def update(self, now_monotonic: float | None = None) -> None:
-        """Poll the device state and derived data."""
-        previous = self.state
-        adv_signaled_change = self._adv_signaled_change
-        state = await self.client.get_state()
-        self._poll_pending = False
-        self._adv_signaled_change = False
-        self.state = state
+        """Poll the device state and derived data.
 
-        self._detect_ring_from_transition(previous, state, adv_signaled_change)
+        Serialized: a post-action refresh may overlap with a beacon-triggered
+        coordinator poll, and interleaved log reads would double-fire rings.
+        """
+        async with self._update_lock:
+            previous = self.state
+            adv_signaled_change = self._adv_signaled_change
+            state = await self.client.get_state()
+            self._poll_pending = False
+            self._adv_signaled_change = False
+            self.state = state
 
-        if self.config is None or (
-            previous is not None
-            and state.config_update_count is not None
-            and previous.config_update_count != state.config_update_count
-        ):
-            self.config = await self.client.get_config()
-            self.advanced_config = await self.client.get_advanced_config()
+            self._detect_ring_from_transition(previous, state, adv_signaled_change)
 
-        if self._should_refresh_battery(now_monotonic):
-            try:
-                self.battery = await self.client.get_battery_report()
-                self._last_battery_monotonic = now_monotonic
-            except NukiError as err:
-                _LOGGER.debug("Battery report unavailable: %s", err)
+            if self.config is None or (
+                previous is not None
+                and state.config_update_count is not None
+                and previous.config_update_count != state.config_update_count
+            ):
+                self.config = await self.client.get_config()
+                self.advanced_config = await self.client.get_advanced_config()
 
-        if self.security_pin is not None:
-            await self._detect_ring_from_log()
+            if self._should_refresh_battery(now_monotonic):
+                try:
+                    self.battery = await self.client.get_battery_report()
+                    self._last_battery_monotonic = now_monotonic
+                except NukiError as err:
+                    _LOGGER.debug("Battery report unavailable: %s", err)
+
+            if self.security_pin is not None:
+                await self._detect_ring_from_log()
 
     async def execute_lock_action(
         self, action: LockAction, name_suffix: str | None = None
@@ -181,6 +191,8 @@ class NukiOpenerDevice:
     def _on_unsolicited_state(self, state: OpenerState) -> None:
         # Sent by the device while an action completes (e.g. RTO activating).
         self.state = state
+        if self.state_listener is not None:
+            self.state_listener()
 
     # --- ring detection ----------------------------------------------------
 

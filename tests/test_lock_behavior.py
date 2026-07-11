@@ -108,3 +108,30 @@ async def test_auto_mode_with_rto_capability_keeps_rto_semantics(
     await hass.services.async_call("lock", "unlock", {ATTR_ENTITY_ID: LOCK_ENTITY}, blocking=True)
     assert environment.opener.received_lock_actions == [LockAction.ACTIVATE_RTO]
     assert hass.states.get(RTO_SWITCH).state == STATE_ON
+
+
+async def test_state_is_fresh_right_after_service_call(
+    hass: HomeAssistant,
+    enable_bluetooth: None,
+    environment: FakeEnvironment,
+    config_entry: MockConfigEntry,
+) -> None:
+    """Entities reflect an action's outcome without waiting for a beacon poll.
+
+    Real hardware does not always push OPENER_STATES while an action runs;
+    without the post-action refresh the entity would show the old state until
+    the next beacon-triggered poll (10+ seconds with the debouncer cooldown).
+    """
+    environment.opener.omit_lock_state_update = True
+    await setup_entry(hass, config_entry)
+
+    await hass.services.async_call("lock", "unlock", {ATTR_ENTITY_ID: LOCK_ENTITY}, blocking=True)
+    assert hass.states.get(LOCK_ENTITY).state == "unlocked"
+    assert hass.states.get(RTO_SWITCH).state == STATE_ON
+
+    await hass.services.async_call("lock", "lock", {ATTR_ENTITY_ID: LOCK_ENTITY}, blocking=True)
+    assert hass.states.get(LOCK_ENTITY).state == "locked"
+    assert environment.opener.received_lock_actions == [
+        LockAction.ACTIVATE_RTO,
+        LockAction.DEACTIVATE_RTO,
+    ]
