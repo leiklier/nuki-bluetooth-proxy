@@ -37,6 +37,14 @@ _OPEN_STATES = (LockState.OPEN, LockState.OPENING)
 RING_SUPPRESSION_FALLBACK = 15.0
 RING_SUPPRESSION_MARGIN = 10.0
 
+# Only the electric strike's completion is worth blocking on (it marks the
+# relatch and re-arms the ring-suppression window). For mode toggles the
+# opener switches the mode and pushes the new state at ACCEPTED time but
+# reports COMPLETE only after its feedback sequence (sound/LED) finishes —
+# measured ~12 s for ACTIVATE_RTO — which would stall the caller and
+# serialize any follow-up action behind it.
+_WAIT_COMPLETION_ACTIONS = (LockAction.ELECTRIC_STRIKE_ACTUATION,)
+
 
 @dataclass(frozen=True, slots=True)
 class RingEvent:
@@ -151,7 +159,11 @@ class NukiOpenerDevice:
         """
         if action == LockAction.ELECTRIC_STRIKE_ACTUATION:
             self._extend_ring_suppression()
-        status = await self.client.lock_action(action, name_suffix=name_suffix)
+        status = await self.client.lock_action(
+            action,
+            name_suffix=name_suffix,
+            wait_for_completion=action in _WAIT_COMPLETION_ACTIONS,
+        )
         if action == LockAction.ELECTRIC_STRIKE_ACTUATION:
             # Restart the window from completion; the false ring may only be
             # detected (and logged) while the strike is releasing.

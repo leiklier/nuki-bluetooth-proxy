@@ -1,5 +1,7 @@
 """Tests for the high-level device wrapper (polling and ring detection)."""
 
+import asyncio
+
 import pytest
 
 from custom_components.nuki_opener_ble.nuki.const import (
@@ -8,6 +10,7 @@ from custom_components.nuki_opener_ble.nuki.const import (
     LockAction,
     LockState,
     NukiState,
+    StatusCode,
     Trigger,
 )
 from custom_components.nuki_opener_ble.nuki.device import NukiOpenerDevice, RingEvent
@@ -325,4 +328,27 @@ class TestRingEventContext:
         assert rings[0].source == "doorbell"
         assert rings[0].ring_to_open_active is False
         assert rings[0].continuous_mode_active is False
+        await device.client.disconnect()
+
+
+class TestCompletionWaitPolicy:
+    async def test_mode_action_does_not_wait_for_completion(
+        self, environment: FakeEnvironment
+    ) -> None:
+        """RTO/CM toggles return at ACCEPTED; the opener sends COMPLETE only
+        after its ~12 s feedback sequence, which must not stall the caller."""
+        environment.opener.omit_lock_completion = True
+        device = make_device(environment)
+        status = await asyncio.wait_for(
+            device.execute_lock_action(LockAction.ACTIVATE_RTO), timeout=1
+        )
+        assert status == StatusCode.ACCEPTED
+        assert environment.opener.state.lock_state == LockState.RTO_ACTIVE
+        await device.client.disconnect()
+
+    async def test_strike_still_waits_for_completion(self, environment: FakeEnvironment) -> None:
+        """The electric strike keeps blocking until COMPLETE (relatch info)."""
+        device = make_device(environment)
+        status = await device.execute_lock_action(LockAction.ELECTRIC_STRIKE_ACTUATION)
+        assert status == StatusCode.COMPLETE
         await device.client.disconnect()
