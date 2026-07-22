@@ -62,6 +62,11 @@ class NukiOpenerCoordinator(ActiveBluetoothDataUpdateCoordinator[None]):
         self.entry = entry
         self.device = device
         self.rssi: int | None = None
+        # Home-Assistant-local preference: whether a ring fires the doorbell
+        # event. Owned and persisted by the doorbell-notifications switch;
+        # read by the event entity. Defaults to on until the switch restores
+        # its last state on startup.
+        self.doorbell_notifications_enabled: bool = True
         device.state_listener = self.async_update_listeners
 
     async def async_refresh_after_action(self) -> None:

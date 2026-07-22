@@ -12,10 +12,11 @@ from dataclasses import dataclass
 from typing import Any
 
 from homeassistant.components.switch import SwitchEntity, SwitchEntityDescription
-from homeassistant.const import EntityCategory
+from homeassistant.const import STATE_ON, EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
+from homeassistant.helpers.restore_state import RestoreEntity
 
 from . import NukiOpenerConfigEntry
 from .coordinator import NukiOpenerCoordinator
@@ -93,6 +94,7 @@ async def async_setup_entry(
         for description in SWITCHES
         if not (description.key == "ring_to_open" and rto_unavailable)
     ]
+    entities.append(NukiOpenerDoorbellNotificationsSwitch(coordinator))
     if coordinator.device.security_pin is not None:
         entities.extend(
             NukiOpenerSuppressionSwitch(coordinator, description)
@@ -125,6 +127,41 @@ class NukiOpenerSwitch(NukiOpenerEntity, SwitchEntity):
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         await self._async_execute_lock_action(self.entity_description.turn_off_action)
+
+
+class NukiOpenerDoorbellNotificationsSwitch(NukiOpenerEntity, SwitchEntity, RestoreEntity):
+    """Whether a doorbell ring surfaces as the doorbell event.
+
+    A Home-Assistant-local preference, not an Opener setting: it does not
+    touch the intercom chime (that is the suppression switches). Turning it
+    off stops the doorbell event entity from firing, which silences Apple
+    HomeKit doorbell notifications — the Home app cannot mute those for a
+    camera-less doorbell — as well as any automations that trigger on the
+    event. The state is restored across restarts.
+    """
+
+    _attr_entity_category = EntityCategory.CONFIG
+    _attr_translation_key = "doorbell_notifications"
+
+    def __init__(self, coordinator: NukiOpenerCoordinator) -> None:
+        super().__init__(coordinator, "doorbell_notifications")
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        if (last_state := await self.async_get_last_state()) is not None:
+            self.coordinator.doorbell_notifications_enabled = last_state.state == STATE_ON
+
+    @property
+    def is_on(self) -> bool:
+        return self.coordinator.doorbell_notifications_enabled
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        self.coordinator.doorbell_notifications_enabled = True
+        self.async_write_ha_state()
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        self.coordinator.doorbell_notifications_enabled = False
+        self.async_write_ha_state()
 
 
 class NukiOpenerSuppressionSwitch(NukiOpenerEntity, SwitchEntity):

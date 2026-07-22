@@ -26,6 +26,11 @@ vectors published in it. Prior art that helped along the way:
 - **Open door button** for dashboards
 - **Doorbell event entity** — fires when someone rings, so you can trigger automations
   (notifications, announcements, conditional auto-open, …)
+- **Doorbell notifications switch** — when off, a ring no longer fires the doorbell
+  event. Use it to silence Apple HomeKit doorbell notifications (which the Home app
+  cannot mute for a camera-less doorbell) — automate it for a quiet doorbell at night.
+  Unlike the ring-suppression settings below, this is a Home Assistant preference and
+  leaves the intercom chime untouched.
 - **Sensors**: opener state, mode, last ring timestamp, battery voltage and Bluetooth
   signal (diagnostic), battery-critical and door-sensor binary sensors
 - **Settings** (require the security PIN): **sound volume** and **doorbell
@@ -118,6 +123,11 @@ The doorbell comes along for free: HomeKit Bridge automatically links a doorbell
 entity on the same device to the lock accessory, so the Opener appears in the Home app
 as a lock **with a doorbell**. Rings surface as HomeKit doorbell events — notifications,
 automations, and HomePod chimes work as with any HomeKit doorbell.
+
+Apple's Home app has no toggle to mute a camera-less doorbell's notifications, so turn
+them off from Home Assistant instead: flip off the **Doorbell notifications** switch (or
+automate it — e.g. off overnight). While it is off no ring reaches HomeKit, so no
+notification or HomePod chime fires.
 
 ## How it works
 
