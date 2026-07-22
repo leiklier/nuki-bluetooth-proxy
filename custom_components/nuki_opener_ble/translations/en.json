@@ -133,6 +133,9 @@
       "continuous_mode": {
         "name": "Continuous mode"
       },
+      "doorbell_notifications": {
+        "name": "Doorbell notifications"
+      },
       "suppress_ring": {
         "name": "Suppress ring sound"
       },

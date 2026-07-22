@@ -8,9 +8,12 @@ from homeassistant.const import (
     STATE_ON,
     STATE_UNKNOWN,
 )
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, State
 import pytest
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant_custom_component.common import (
+    MockConfigEntry,
+    mock_restore_cache,
+)
 
 from custom_components.nuki_opener_ble.nuki.const import (
     LockAction,
@@ -31,6 +34,7 @@ MODE_SENSOR = "sensor.front_door_mode"
 LAST_RING_SENSOR = "sensor.front_door_last_ring"
 BATTERY_CRITICAL = "binary_sensor.front_door_battery_critical"
 DOORBELL_EVENT = "event.front_door_doorbell"
+DOORBELL_SWITCH = "switch.front_door_doorbell_notifications"
 
 
 async def test_entity_states_after_setup(
@@ -49,6 +53,7 @@ async def test_entity_states_after_setup(
     assert hass.states.get(MODE_SENSOR).state == "door_mode"
     assert hass.states.get(BATTERY_CRITICAL).state == STATE_OFF
     assert hass.states.get(DOORBELL_EVENT).state == STATE_UNKNOWN
+    assert hass.states.get(DOORBELL_SWITCH).state == STATE_ON
     assert hass.states.get(LAST_RING_SENSOR).state == STATE_UNKNOWN
 
 
@@ -135,6 +140,44 @@ async def test_doorbell_ring_event(
     assert event_state.state != STATE_UNKNOWN
     assert event_state.attributes["event_type"] == "ring"
     assert hass.states.get(LAST_RING_SENSOR).state != STATE_UNKNOWN
+
+
+async def test_doorbell_notifications_switch_swallows_ring(
+    hass: HomeAssistant,
+    enable_bluetooth: None,
+    environment: FakeEnvironment,
+    config_entry: MockConfigEntry,
+) -> None:
+    """With doorbell notifications off, a ring does not fire the event."""
+    await setup_entry(hass, config_entry)
+    await hass.services.async_call(
+        "switch", SERVICE_TURN_OFF, {ATTR_ENTITY_ID: DOORBELL_SWITCH}, blocking=True
+    )
+    assert hass.states.get(DOORBELL_SWITCH).state == STATE_OFF
+
+    inject_opener_advertisement(hass, state_changed=True)
+    await hass.async_block_till_done(wait_background_tasks=True)
+
+    # The ring is still detected (the last-ring sensor updates) but the
+    # doorbell event stays silent, so no HomeKit doorbell notification fires.
+    assert hass.states.get(LAST_RING_SENSOR).state != STATE_UNKNOWN
+    assert hass.states.get(DOORBELL_EVENT).state == STATE_UNKNOWN
+
+
+async def test_doorbell_notifications_state_restored(
+    hass: HomeAssistant,
+    enable_bluetooth: None,
+    environment: FakeEnvironment,
+    config_entry: MockConfigEntry,
+) -> None:
+    """The switch restores its off state across a restart and keeps gating."""
+    mock_restore_cache(hass, [State(DOORBELL_SWITCH, STATE_OFF)])
+    await setup_entry(hass, config_entry)
+    assert hass.states.get(DOORBELL_SWITCH).state == STATE_OFF
+
+    inject_opener_advertisement(hass, state_changed=True)
+    await hass.async_block_till_done(wait_background_tasks=True)
+    assert hass.states.get(DOORBELL_EVENT).state == STATE_UNKNOWN
 
 
 async def test_advertisement_triggered_poll_updates_state(

@@ -39,6 +39,13 @@ class NukiOpenerDoorbellEvent(NukiOpenerEntity, EventEntity):
 
     @callback
     def _async_handle_ring(self, event: RingEvent) -> None:
+        # The doorbell-notifications switch gates whether a ring surfaces at
+        # all. Apple HomeKit turns this event into a doorbell notification
+        # that the Home app cannot mute for a camera-less doorbell, so this
+        # switch is the way to silence it (it also stops HA automations that
+        # trigger on the event).
+        if not self.coordinator.doorbell_notifications_enabled:
+            return
         self._trigger_event(
             EVENT_RING,
             {
